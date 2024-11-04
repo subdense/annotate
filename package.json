@@ -1,0 +1,29 @@
+{
+  "name": "scalajs-annotator",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@scala-js/vite-plugin-scalajs": "^1.0.0",
+    "@types/chart.js": "^2.9.29",
+    "@types/leaflet": "^1.9.14",
+    "@types/leaflet.sync": "^0.2.3",
+    "typescript": "^4.9.5",
+    "vite": "^4.1.0"
+  },
+  "dependencies": {
+    "@isomorphic-git/lightning-fs": "^4.6.0",
+    "@types/leaflet.markercluster": "^1.5.5",
+    "chart.js": "^2.9.4",
+    "git-essentials": "^1.6.9",
+    "isomorphic-git": "^1.27.1",
+    "leaflet": "^1.9.4",
+    "leaflet.markercluster": "^1.5.3",
+    "leaflet.sync": "^0.2.3"
+  }
+}
