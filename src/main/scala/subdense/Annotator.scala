@@ -101,7 +101,7 @@ def read[T](file: String, parse: Boolean = true): Promise[T] = client.readFile(f
 def write(file: String, content: String): Promise[Unit] = client.writeFile(file, content, EncodingOptions().setEncoding(utf8))
 
 def cloneData(token: String): Promise[js.Array[Task_]] =
-  val useIsomorphicProxy = false
+  val useIsomorphicProxy = true
   val proxy = if useIsomorphicProxy then "https://cors.isomorphic-git.org" else "https://gitcorsproxy.vercel.app/api/cors"
   val url = "https://github.com/subdense/private_datasets.git"
   val http_ = """^https?:\/\/"""
@@ -113,7 +113,9 @@ def cloneData(token: String): Promise[js.Array[Task_]] =
       fs=client,
       http=makeWebHttpClient(whco.WebHttpClientOptions().setTransformRequestUrl(transform)),
       url=url)
-      .setOnAuth((_,_) => Auth().setUsername(token))
+      .setOnAuth((url,auth) =>
+        println(s"Authentication for $url")
+        auth.setUsername(token))
     ).`then`(_=> {
       println(s"done cloning $url")
       read[DatasetList](s"$dir/datasets.json")
@@ -304,9 +306,10 @@ object Main:
     else Promise.resolve(false)
 
   val logged: Var[LoggedUserState] = {
-    val username = dom.window.localStorage.getItem("username")
-    val token = dom.window.localStorage.getItem("token")
-    val validated = Some(username).getOrElse("").nonEmpty && Some(token).getOrElse("").nonEmpty
+    val username = if dom.window.localStorage.hasOwnProperty("username") then dom.window.localStorage.getItem("username") else ""
+    val token = if dom.window.localStorage.hasOwnProperty("token") then dom.window.localStorage.getItem("token") else ""
+    val validated = username.nonEmpty && token.nonEmpty
+    println(s"logged $username $validated")
     if validated then cloneData(token)
       .`then`(datasets => {
         datasetsVar.update(_ => Some(datasets.asInstanceOf[js.Array[Task_]]))
@@ -316,7 +319,10 @@ object Main:
     Var(LoggedUserState(username, token, validated))
   }
   val loggedSignal: StrictSignal[LoggedUserState] = logged.signal
-  val stateVar = Var(UserState(dom.window.localStorage.getItem("username"),dom.window.localStorage.getItem("token")))
+  val stateVar = Var(UserState(
+    if dom.window.localStorage.hasOwnProperty("username") then dom.window.localStorage.getItem("username") else "",
+    if dom.window.localStorage.hasOwnProperty("token") then dom.window.localStorage.getItem("token") else ""
+  ))
   val tokenWriter: Observer[String] = stateVar.updater[String]((state, token) => state.copy(token = token))
   val usernameWriter: Observer[String] = stateVar.updater[String]((state, username) => state.copy(username = username))
   val submitter: Observer[UserState] = Observer[UserState] { state =>
@@ -455,22 +461,6 @@ object Main:
       h1("Personal Dashboard"),
       h2(s"User: $username"),
       children <-- signal.split(_.name)(newRenderDataset)
-/*
-      children <-- datasetsVar.signal.map(datasetsOption=>datasetsOption.map(datasets=>datasets.toArray
-        .groupBy(_.dataset)
-        .map((d,array)=>
-          div(
-            h3(d),
-            children(array.groupBy(_.sample).map((s,array)=>
-              progressTag(
-                s,
-                //array.map(_.task.annotations.exists(_.username == username))
-              )
-            ))
-          )
-        )
-      ))
-*/
     )
   end renderDashboard
 
@@ -588,11 +578,6 @@ object Main:
           addTileLayer(globalMapRight,currentWmts.now()._2)
           globalMapLeft.sync(globalMapRight, SyncMapOptions())
           globalMapRight.sync(globalMapLeft, SyncMapOptions())
-/*
-          if (datasetVar.now().nonEmpty)
-            println("update global Maps")
-            updateMaps(globalMapLeft,globalMapRight,datasetVar.now().head._2,datasetVar.now().head._3)
-*/
         ),
         div(idAttr("global-container"), cls("my-container"),
           div(idAttr("globalMapLeft"), cls("mapLeft"), cls("map"),
