@@ -1,8 +1,9 @@
 package subdense
 
 import com.raquo.laminar.api.L.{*, given}
+import com.raquo.laminar.nodes.ReactiveHtmlElement
 import org.scalajs.dom
-import org.scalajs.dom.HTMLElement
+import org.scalajs.dom.{HTMLDivElement, HTMLElement}
 import typings.geojson.mod.*
 import typings.gitEssentials.clientsFsIndexedDbFsClientMod.IndexedDbFsClient
 import typings.gitEssentials.clientsHttpWebHttpClientMod.makeWebHttpClient
@@ -26,7 +27,6 @@ import scala.language.implicitConversions
 import scala.scalajs.js
 import scala.scalajs.js.JSConverters.*
 import scala.scalajs.js.URIUtils.encodeURIComponent
-import scala.scalajs.js.annotation.*
 import scala.scalajs.js.{JSON, Promise}
 
 val leftRightStyle = PathOptions().setColor("#ff7800").setWeight(5).setOpacity(0.25).setDashArray("20 20").setDashOffset("10").setFill(false)
@@ -177,59 +177,12 @@ def Annotator(): Unit =
   )
 end Annotator
 
-case class LoggedUserState(username: String = "",token: String = "",validated: Boolean = false)
-case class UserState(
-  username: String = "",
-  token: String = "",
-  showErrors: Boolean = false
-) {
-
-  def hasErrors: Boolean = usernameError.nonEmpty || tokenError.nonEmpty
-
-  def usernameError: Option[String] = {
-    if (username.nonEmpty) {
-      None
-    } else {
-      Some("Username must not be empty.")
-    }
-  }
-
-  def tokenError: Option[String] = {
-    if (token.length == 40) {
-      None
-    } else {
-      Some("Token must consist of 40 character long.")
-    }
-  }
-
-  def displayError(error: UserState => Option[String]): Option[String] = {
-    error(this).filter(_ => showErrors)
-  }
-}
-
 object Main:
-  enum Page(val name: String):
-    case Home extends Page("Home")
-    case Dashboard extends Page("Dashboard")
-    case AnnotatedMaps extends Page("Annotated Maps")
-    case Annotate extends Page("Annotate")
-    case Login extends Page("Login")
-    case Help extends Page("Help")
+  val model = new Model
+  import model.*
 
-  val currentPage: Var[Page] = Var(Page.Home)
-  private val geoJSON: Var[Option[(GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])]] = Var(None)
-
-  private def geoJSONUpdate(left:GeoJSON__[Geometry,GeoJsonProperties], right:GeoJSON__[Geometry,GeoJsonProperties]): Unit =
-    geoJSON.update(previous =>
-      previous match {
-        case Some((previousLeft, previousRight)) =>
-          previousLeft.removeFrom(mapLeft)
-          previousRight.removeFrom(mapRight)
-        case None =>
-          println(s"previous was None")
-      }
-      Some((left, right))
-    )
+  //val currentPage: Var[Page] = Var(Page.Home)
+  //private val geoJSON: Var[Option[(GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])]] = Var(None)
 
   private def updateMaps(leftMap: Map_, rightMap: Map_, leftGeoJSON: GeoJSON__[Geometry,GeoJsonProperties], rightGeoJSON: GeoJSON__[Geometry,GeoJsonProperties]) =
     leftGeoJSON.addTo(leftMap)
@@ -242,105 +195,6 @@ object Main:
   private def asFeatureCollection(text: String): FeatureCollection[Geometry, GeoJsonProperties] =
     JSON.parse(text).asInstanceOf[FeatureCollection[Geometry, GeoJsonProperties]]
 
-  private def parseGeoJSON(text:String, date: String) =
-    L.GeoJSON__(JSON.parse(text).asInstanceOf[GeoJsonObject],
-      GeoJSONOptions().setFilter((feature:Feature[Geometry, GeoJsonProperties])=>feature.properties("date") == date)).asInstanceOf[GeoJSON__[Geometry,GeoJsonProperties]]
-
-  private val currentDates: Var[(String,String)] = Var(("",""))
-  private val currentWmts: Var[(String,String)] = Var(("",""))
-  private val currentSampleFile: Var[String] = Var("")
-  private val currentTaskFile: Var[String] = Var("")
-  private val datasetsVar: Var[Option[js.Array[Task_]]] = Var(None)
-  private var iterator: Iterator[Task_] = null
-  private var mapLeft: Map_ = null
-  private var mapRight: Map_ = null
-  private var globalMapLeft: Map_ = null
-  private var globalMapRight: Map_ = null
-  private val annotationFinished: Var[Boolean] = Var(false)
-  @tailrec
-  private def nextFeature(): Promise[Boolean] =
-    if iterator.hasNext then
-      val currentTask_ = iterator.next()
-      println(s"new task ${currentTask_.task.task}")
-      if currentTask_.task.annotations.exists(_.username == stateVar.now().username) then
-        nextFeature()
-      else
-        currentDates.update(_ => (currentTask_.dates(0), currentTask_.dates(1)))
-        currentWmts.update(_ => (currentTask_.wmts(0), currentTask_.wmts(1)))
-        currentSampleFile.update(_ => currentTask_.sample)
-        currentTaskFile.update(_ => currentTask_.task.task)
-        reInitAnnotation()
-        read[String](s"$dir/${currentTask_.task.task}", false).`then`(content =>
-          val newTask = content.asInstanceOf[String]
-          val left = parseGeoJSON(newTask, currentDates.now()._1).setStyle(leftLeftStyle)
-          val right = parseGeoJSON(newTask, currentDates.now()._2).setStyle(rightRightStyle)
-          geoJSONUpdate(left, right)
-          true
-        )
-    else Promise.resolve(false)
-
-  val logged: Var[LoggedUserState] = {
-    val username = if dom.window.localStorage.hasOwnProperty("username") then dom.window.localStorage.getItem("username") else ""
-    val token = if dom.window.localStorage.hasOwnProperty("token") then dom.window.localStorage.getItem("token") else ""
-    val validated = username.nonEmpty && token.nonEmpty
-    println(s"logged $username $validated")
-    if validated then cloneData(token)
-      .`then`(datasets => {
-        datasetsVar.update(_ => Some(datasets.asInstanceOf[js.Array[Task_]]))
-        iterator = datasets.asInstanceOf[js.Array[Task_]].iterator
-        nextFeature()
-      })
-    Var(LoggedUserState(username, token, validated))
-  }
-  val loggedSignal: StrictSignal[LoggedUserState] = logged.signal
-  val stateVar = Var(UserState(
-    if dom.window.localStorage.hasOwnProperty("username") then dom.window.localStorage.getItem("username") else "",
-    if dom.window.localStorage.hasOwnProperty("token") then dom.window.localStorage.getItem("token") else ""
-  ))
-  val tokenWriter: Observer[String] = stateVar.updater[String]((state, token) => state.copy(token = token))
-  val usernameWriter: Observer[String] = stateVar.updater[String]((state, username) => state.copy(username = username))
-  val submitter: Observer[UserState] = Observer[UserState] { state =>
-    if (state.hasErrors) {
-      stateVar.update(_.copy(showErrors = true))
-    } else {
-      //dom.window.alert(s"Username: ${state.username}; Token: ${state.token}")
-      dom.window.localStorage.setItem("token", state.token)
-      dom.window.localStorage.setItem("username", state.username)
-      logged.update(_=>LoggedUserState(state.token,state.username,true))
-      currentPage.update(_ => Page.Home)
-      cloneData(state.token)
-        .`then`(datasets => {
-          datasetsVar.update(_ => Some(datasets.asInstanceOf[js.Array[Task_]]))
-          iterator = datasets.asInstanceOf[js.Array[Task_]].iterator
-          nextFeature()
-        })
-    }
-  }
-  private val annotationStep: Var[Int] = Var(0)
-  private val linkType: Var[String] = Var("")
-  private val changeType: Var[String] = Var("")
-  private val quality: Var[Boolean] = Var(false)
-  private val comment: Var[String] = Var("")
-  private val datasetSelected: Var[String] = Var("")
-  private def reInitAnnotation(): Unit =
-    annotationStep.update(_=>0)
-    linkType.update(_=>"")
-    changeType.update(_=>"")
-    quality.update(_=>false)
-    comment.update(_ => "")
-  def logInOut(): Unit = {
-    if (logged.now().validated) {
-      // logout
-      println("logging out")
-      dom.window.localStorage.removeItem("token")
-      dom.window.localStorage.removeItem("username")
-      currentPage.update(_ => Page.Home)
-      logged.update(_=>LoggedUserState())
-    } else {
-      println("logging in")
-      currentPage.update(_ => Page.Login)
-    }
-  }
   def header(): Element =
     navTag(
       menuTag(
@@ -350,28 +204,28 @@ object Main:
         li(
           button(
             onClick --> { _ => currentPage.update(_ => Page.Dashboard) },
-            disabled <-- loggedSignal.map(!_.validated),
+            disabled <-- stateVar.signal.map(!_.validated),
             Page.Dashboard.name
           )
         ),
         li(
           button(
             onClick --> { _ => currentPage.update(_ => Page.AnnotatedMaps) },
-            disabled <-- loggedSignal.map(!_.validated),
+            disabled <-- stateVar.signal.map(!_.validated),
             Page.AnnotatedMaps.name
           )
         ),
         li(
           button(
             onClick --> { _ => currentPage.update(_ => Page.Annotate) },
-            disabled <-- loggedSignal.map(!_.validated).combineWithFn(annotationFinished.signal)((a,b)=>a||b),
+            disabled <-- stateVar.signal.map(!_.validated).combineWithFn(annotationFinished.signal)((a,b)=>a||b),
             Page.Annotate.name
           )
         ),
         li(
           button(
             onClick --> { _ => logInOut() },
-            text <-- loggedSignal.map(l=>if l.validated then "Logout" else Page.Login.name)
+            text <-- stateVar.signal.map(l=>if l.validated then "Logout" else Page.Login.name)
           )
         ),
         li(
@@ -548,11 +402,12 @@ object Main:
     )
     div(
       h1(Page.AnnotatedMaps.name),
-      /*label("Dataset: ",forId("datasetSelect")),
+      label("Dataset: ",forId("datasetSelect")),
       select(idAttr("datasetSelect"),
+        value <-- datasetSelected.signal,
         children <-- datasetVar.signal.map(l=>l.map(p=>option(p._1))),
-        onChange.mapToValue --> datasetSelected.updater[String]((_,value)=>value)
-      ),*/
+        onChange.mapToValue --> datasetSelected
+      ),
       div(
         datasetVar.signal --> dsObserver,
         // Wait for the component to be mounted before adding the leaflet and syncs
@@ -581,16 +436,13 @@ object Main:
 
   private def linkButton(name: String): Element =
     button(name,typ("button"),
-      backgroundColor <-- linkType.signal.map(link=>if link == name then "Silver" else "WhiteSmoke"),
-      onClick --> { _ =>
-        linkType.update(_=>name)
-        annotationStep.update(_=>1)
-      }
+      backgroundColor <-- annotationState.signal.map(_.linkType).map(link=>if link == name then "Silver" else "WhiteSmoke"),
+      onClick --> { _ => annotationState.update(state=>state.copy(linkType = name, step=1)) }
     )
   private def changeButton(name: String): Element =
     button(name,typ("button"),
-      backgroundColor <-- changeType.signal.map(link=>if link == name then "Silver" else "WhiteSmoke"),
-      onClick --> { _ => changeType.update(_=>name) }
+      backgroundColor <-- annotationState.signal.map(_.changeType).map(change=>if change == name then "Silver" else "WhiteSmoke"),
+      onClick --> { _ => annotationState.update(state=>state.copy(changeType = name)) }
     )
 
   def map(name: String, left: Boolean): Map_ =
@@ -659,14 +511,14 @@ object Main:
           linkButton("other"),
           button(">",
             backgroundColor := "Orchid",
-            disabled <-- linkType.signal.map(link=> link == ""),
-            onClick --> { _ => annotationStep.update(_=>1) }
+            disabled <-- annotationState.signal.map(_.linkType).map(link=> link == ""),
+            onClick --> { _ => annotationState.update(state=>state.copy(step=1)) }
           )
-        ) <-- annotationStep.signal.map(_==0),
+        ) <-- annotationState.signal.map(_.step==0),
         children(
           button("<",
             backgroundColor := "Orchid",
-            onClick --> { _ => annotationStep.update(_=>0) }
+            onClick --> { _ => annotationState.update(state=>state.copy(step=0)) }
           ),
           changeButton("no change"),
           changeButton("construction"),
@@ -676,14 +528,14 @@ object Main:
           changeButton("reconstruction"),
           changeButton("IDK"),
           label("Quality issue: "),input("Quality issue",`type`:="checkbox",
-            checked <-- quality.signal,
-            inContext( thisNode => onClick --> { _=> quality.update(_ => thisNode.ref.checked) } )
+            checked <-- annotationState.signal.map(_.quality),
+            inContext( thisNode => onClick --> { _=> annotationState.update(state=>state.copy(quality = thisNode.ref.checked)) } )
           ),
-          input("Comment",placeholder := "Any comment?",value <-- comment.signal,
-            onInput.mapToValue --> comment.updater[String]((_,commentValue)=>commentValue)),
+          input("Comment",placeholder := "Any comment?",value <-- annotationState.signal.map(_.comment),
+            onInput.mapToValue --> annotationState.updater[String]((state,commentValue)=>state.copy(comment=commentValue))),
           button("save",
             backgroundColor := "Crimson",
-            disabled <-- changeType.signal.map(change=> change == ""),
+            disabled <-- annotationState.signal.map(_.changeType == ""),
             onClick --> { _ =>
               //annotationStep.update(_=>0)
               println("save")
@@ -694,10 +546,10 @@ object Main:
                 val task = content.tasks.find(_.task == taskFile).get
                 val annotation = Annotation()
                 annotation.username = stateVar.now().username
-                annotation.link = linkType.now()
-                annotation.change = changeType.now()
-                annotation.quality = quality.now()
-                annotation.comment = comment.now()
+                annotation.link = annotationState.now().linkType
+                annotation.change = annotationState.now().changeType
+                annotation.quality = annotationState.now().quality
+                annotation.comment = annotationState.now().comment
                 task.annotations.push(annotation)
                 println(s"now\n${JSON.stringify(content, space=2)}")
                 write(s"$dir/$sampleFile",JSON.stringify(content, space=2))
@@ -714,7 +566,7 @@ object Main:
               )
             }
           )
-        ) <-- annotationStep.signal.map(_==1)
+        ) <-- annotationState.signal.map(_.step==1)
       )
     )
   end renderAnnotate
@@ -774,7 +626,7 @@ object Main:
     )
   end renderLogin
 
-  def renderHelp(): Element =
+  def renderHelp(): ReactiveHtmlElement[HTMLDivElement] =
     div(
       h1(Page.Help.name),
       p("Here are a few examples to help you annotate the changes."),
@@ -796,3 +648,131 @@ object Main:
   end renderHelp
 
 end Main
+
+enum Page(val name: String):
+  case Home extends Page("Home")
+  case Dashboard extends Page("Dashboard")
+  case AnnotatedMaps extends Page("Annotated Maps")
+  case Annotate extends Page("Annotate")
+  case Login extends Page("Login")
+  case Help extends Page("Help")
+
+final class Model {
+  val currentPage: Var[Page] = Var(Page.Home)
+  val geoJSON: Var[Option[(GeoJSON__[Geometry, GeoJsonProperties], GeoJSON__[Geometry, GeoJsonProperties])]] = Var(None)
+  val currentDates: Var[(String,String)] = Var(("",""))
+  val currentWmts: Var[(String,String)] = Var(("",""))
+  val currentSampleFile: Var[String] = Var("")
+  val currentTaskFile: Var[String] = Var("")
+  val datasetsVar: Var[Option[js.Array[Task_]]] = Var(None)
+  var iterator: Iterator[Task_] = null
+  var mapLeft: Map_ = null
+  var mapRight: Map_ = null
+  var globalMapLeft: Map_ = null
+  var globalMapRight: Map_ = null
+  val annotationFinished: Var[Boolean] = Var(false)
+  case class AnnotationState(linkType: String = "", changeType: String = "", quality: Boolean = false, comment: String = "", step: Int = 0)
+  val annotationState = Var(AnnotationState())
+  val datasetSelected: Var[String] = Var("")
+
+  case class UserState(username: String = "",token: String = "",showErrors: Boolean = false,validated: Boolean = false) {
+    def hasErrors: Boolean = usernameError.nonEmpty || tokenError.nonEmpty
+    def usernameError: Option[String] = if (username.nonEmpty) None else Some("Username must not be empty.")
+    def tokenError: Option[String] = if (token.length == 40) None else Some("Token must consist of 40 character long.")
+    def displayError(error: UserState => Option[String]): Option[String] = error(this).filter(_ => showErrors)
+  }
+  private def localStorageGetOrElse(v: String): String = if dom.window.localStorage.hasOwnProperty(v) then dom.window.localStorage.getItem(v) else ""
+
+  val stateVar: Var[UserState] = {
+    val (username, token) = (localStorageGetOrElse("username"), localStorageGetOrElse("token"))
+    val validated = username.nonEmpty && token.nonEmpty
+    println(s"logged $username $validated")
+    if validated then cloneData(token)
+      .`then`(datasets => {
+        datasetsVar.update(_ => Some(datasets.asInstanceOf[js.Array[Task_]]))
+        iterator = datasets.asInstanceOf[js.Array[Task_]].iterator
+        nextFeature()
+      })
+    Var(UserState(username,token,validated))
+  }
+
+  private def geoJSONUpdate(left:GeoJSON__[Geometry,GeoJsonProperties], right:GeoJSON__[Geometry,GeoJsonProperties]): Unit =
+    geoJSON.update(previous =>
+      previous match {
+        case Some((previousLeft, previousRight)) =>
+          previousLeft.removeFrom(mapLeft)
+          previousRight.removeFrom(mapRight)
+        case None =>
+          println(s"previous was None")
+      }
+      Some((left, right))
+    )
+
+  @tailrec
+  def nextFeature(): Promise[Boolean] =
+    def parseGeoJSONAndFilter(text:String, date: String) =
+      GeoJSON__(JSON.parse(text).asInstanceOf[GeoJsonObject],
+        GeoJSONOptions().setFilter((feature:Feature[Geometry, GeoJsonProperties])=>feature.properties("date") == date)).asInstanceOf[GeoJSON__[Geometry,GeoJsonProperties]]
+
+    def reInitAnnotation(): Unit =
+      annotationState.update(_=>AnnotationState())
+/*
+      annotationStep.update(_ => 0)
+      linkType.update(_ => "")
+      changeType.update(_ => "")
+      quality.update(_ => false)
+      comment.update(_ => "")
+*/
+
+    if iterator.hasNext then
+      val currentTask_ = iterator.next()
+      println(s"new task ${currentTask_.task.task}")
+      if currentTask_.task.annotations.exists(_.username == stateVar.now().username) then
+        nextFeature()
+      else
+        currentDates.update(_ => (currentTask_.dates(0), currentTask_.dates(1)))
+        currentWmts.update(_ => (currentTask_.wmts(0), currentTask_.wmts(1)))
+        currentSampleFile.update(_ => currentTask_.sample)
+        currentTaskFile.update(_ => currentTask_.task.task)
+        reInitAnnotation()
+        read[String](s"$dir/${currentTask_.task.task}", false).`then`(content =>
+          val newTask = content.asInstanceOf[String]
+          val left = parseGeoJSONAndFilter(newTask, currentDates.now()._1).setStyle(leftLeftStyle)
+          val right = parseGeoJSONAndFilter(newTask, currentDates.now()._2).setStyle(rightRightStyle)
+          geoJSONUpdate(left, right)
+          true
+        )
+    else Promise.resolve(false)
+  val tokenWriter: Observer[String] = stateVar.updater[String]((state, token) => state.copy(token = token))
+  val usernameWriter: Observer[String] = stateVar.updater[String]((state, username) => state.copy(username = username))
+  val submitter: Observer[UserState] = Observer[UserState] { state =>
+    if (state.hasErrors) {
+      stateVar.update(_.copy(showErrors = true))
+    } else {
+      //dom.window.alert(s"Username: ${state.username}; Token: ${state.token}")
+      dom.window.localStorage.setItem("token", state.token)
+      dom.window.localStorage.setItem("username", state.username)
+      stateVar.update(_.copy(validated = true))
+      currentPage.update(_ => Page.Home)
+      cloneData(state.token)
+        .`then`(datasets => {
+          datasetsVar.update(_ => Some(datasets.asInstanceOf[js.Array[Task_]]))
+          iterator = datasets.asInstanceOf[js.Array[Task_]].iterator
+          nextFeature()
+        })
+    }
+  }
+
+  def logInOut(): Unit = {
+    if (stateVar.now().validated) {
+      println("logging out")
+      dom.window.localStorage.removeItem("token")
+      dom.window.localStorage.removeItem("username")
+      currentPage.update(_ => Page.Home)
+      stateVar.update(_.copy(validated = false))
+    } else {
+      println("logging in")
+      currentPage.update(_ => Page.Login)
+    }
+  }
+}
