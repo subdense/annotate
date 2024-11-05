@@ -169,40 +169,6 @@ def gitPush(username: String, token: String, file: String, message: String): Pro
       )
   )
 
-// import javascriptLogo from "/javascript.svg"
-@js.native @JSImport("/javascript.svg", JSImport.Default)
-val javascriptLogo: String = js.native
-
-val chartConfig =
-  import typings.chartJs.mod.*
-  new ChartConfiguration {
-    `type` = ChartType.bar
-    data = new ChartData {
-      datasets = js.Array(
-        new ChartDataSets {
-          label = "Price"
-          borderWidth = 1
-          backgroundColor = "green"
-        },
-        new ChartDataSets {
-          label = "Full price"
-          borderWidth = 1
-          backgroundColor = "blue"
-        }
-      )
-    }
-    options = new ChartOptions {
-      scales = new ChartScales {
-        yAxes = js.Array(new CommonAxe {
-          ticks = new TickOptions {
-            beginAtZero = true
-          }
-        })
-      }
-    }
-  }
-end chartConfig
-
 @main
 def Annotator(): Unit =
   renderOnDomContentLoaded(
@@ -374,16 +340,16 @@ object Main:
         ),
         li(
           button(
-            onClick --> { _ => currentPage.update(_ => "Personal Dashboard") },
+            onClick --> { _ => currentPage.update(_ => "Dashboard") },
             disabled <-- loggedSignal.map(!_.validated),
-            "Personal Dashboard"
+            "Dashboard"
           )
         ),
         li(
           button(
-            onClick --> { _ => currentPage.update(_ => "Global Dashboard") },
+            onClick --> { _ => currentPage.update(_ => "Maps") },
             disabled <-- loggedSignal.map(!_.validated),
-            "Global Dashboard"
+            "Maps"
           )
         ),
         li(
@@ -408,8 +374,8 @@ object Main:
         println(s"Split $id")
         id match {
           case "Home"               => renderHome()
-          case "Personal Dashboard" => renderDashboard()
-          case "Global Dashboard"   => renderGlobalDashboard()
+          case "Dashboard" => renderDashboard()
+          case "Maps"   => renderGlobalDashboard()
           case "Annotate"           => renderAnnotate()
           case "Login"              => renderLogin()
         }
@@ -538,7 +504,7 @@ object Main:
             //println(s"features = ${features.length}")
             val coords = features.flatMap(_.geometry.asInstanceOf[MultiPolygon].coordinates(0)(0)).map(p=>(p(1),p(0)))
             //println(s"coords = ${coords.length}")
-            coords.foreach((a,b)=>println(s"p = $a, $b"))
+            //coords.foreach((a,b)=>println(s"p = $a, $b"))
             val (px,py) = ((coords.map(_._1).max + coords.map(_._1).min)/2,(coords.map(_._2).max + coords.map(_._2).min)/2)
             val annotators = features.map(_.properties("annotators").asInstanceOf[js.Array[String]])
             val (noAnnotation,oneAnnotation,twoAnnotations,moreAnnotations) = (annotators.count(_.isEmpty),annotators.count(_.length == 1),annotators.count(_.length == 2),annotators.count(_.length > 2))
@@ -565,7 +531,7 @@ object Main:
           )
     )
     div(
-      h1("Global Dashboard"),
+      h1("Maps"),
       div(
         datasetVar.signal --> dsObserver,
         // Wait for the component to be mounted before adding the leaflet and syncs
@@ -610,19 +576,29 @@ object Main:
     println("create map")
     L.map(name, MapOptions().setAttributionControl(!left).setZoomControl(left)).setView(LatLngLiteral(48.8, 2.3), zoom = 18)
 
-  private def addTileLayer(map: Map_, wmts:String): TileLayer_ =
-    tileLayer(
-      s"https://data.geopf.fr/wmts?" +
-        "&REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0" +
-        "&STYLE=normal" +
-        "&TILEMATRIXSET=PM" +
-        "&FORMAT=image/jpeg" +
-        s"&LAYER=$wmts" +
-        "&TILEMATRIX={z}" +
-        "&TILEROW={y}" +
-        "&TILECOL={x}",
-      TileLayerOptions().setMinZoom(0).setMaxZoom(20).setMaxNativeZoom(18).setAttribution("IGN-F/Geoportail").setTileSize(256)
-    ).addTo(map)
+  private def addTileLayer(map: Map_, wmts:String): Unit =
+    val split = wmts.split('?')
+    val baseUrl = split.head
+    val layers = split(1).split(',')
+    for (layer <- layers) {
+      if baseUrl.contains("wmts") then
+        tileLayer(
+          s"$baseUrl?" +
+            "&REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0" +
+            "&STYLE=normal" +
+            "&TILEMATRIXSET=PM" +
+            "&FORMAT=image/jpeg" +
+            s"&LAYER=$layer" +
+            "&TILEMATRIX={z}" +
+            "&TILEROW={y}" +
+            "&TILECOL={x}",
+          TileLayerOptions().setMinZoom(0).setMaxZoom(20).setMaxNativeZoom(18).setAttribution("IGN-F/Geoportail").setTileSize(256)
+        ).addTo(map)
+      else
+        tileLayer.wms(s"$baseUrl?",
+          WMSOptions().setMinZoom(0).setMaxZoom(20).setMaxNativeZoom(18).setAttribution(baseUrl)
+        ).addTo(map)
+    }
 
   /*
   tileLayer(
@@ -713,7 +689,7 @@ object Main:
                   currentPage.update(_ => "Annotate")
                 else
                   annotationFinished.update(_=>true)
-                  currentPage.update(_ => "Personal Dashboard")
+                  currentPage.update(_ => "Dashboard")
               )
             }
           )
@@ -758,6 +734,7 @@ object Main:
         renderInputRow(_.tokenError)(
           label("Token: "),
           input(
+            typ("password"),
             placeholder("YOUR-PERSONAL-ACCESS-TOKEN"),
             controlled(
               value <-- stateVar.signal.map(_.token),
@@ -771,7 +748,8 @@ object Main:
           )
         ),
         button(typ("submit"), "Submit")
-      )
+      ),
+      p("To create one, refer to ",a("Token creation",href("https://github.com/settings/tokens/new")),". Your account has to be linked to the ",a("SUBDENSE organisation",href("https://github.com/subdense"))," and the token need the ",b("repo")," rights.")
     )
   end renderLogin
 end Main
