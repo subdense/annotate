@@ -548,11 +548,11 @@ object Main:
     )
     div(
       h1(Page.AnnotatedMaps.name),
-      label("Dataset: ",forId("datasetSelect")),
+      /*label("Dataset: ",forId("datasetSelect")),
       select(idAttr("datasetSelect"),
         children <-- datasetVar.signal.map(l=>l.map(p=>option(p._1))),
         onChange.mapToValue --> datasetSelected.updater[String]((_,value)=>value)
-      ),
+      ),*/
       div(
         datasetVar.signal --> dsObserver,
         // Wait for the component to be mounted before adding the leaflet and syncs
