@@ -208,7 +208,15 @@ case class UserState(
 }
 
 object Main:
-  val currentPage: Var[String] = Var("Home")
+  enum Page(val name: String):
+    case Home extends Page("Home")
+    case Dashboard extends Page("Dashboard")
+    case AnnotatedMaps extends Page("Annotated Maps")
+    case Annotate extends Page("Annotate")
+    case Login extends Page("Login")
+    case Help extends Page("Help")
+
+  val currentPage: Var[Page] = Var(Page.Home)
   private val geoJSON: Var[Option[(GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])]] = Var(None)
 
   private def geoJSONUpdate(left:GeoJSON__[Geometry,GeoJsonProperties], right:GeoJSON__[Geometry,GeoJsonProperties]): Unit =
@@ -299,7 +307,7 @@ object Main:
       dom.window.localStorage.setItem("token", state.token)
       dom.window.localStorage.setItem("username", state.username)
       logged.update(_=>LoggedUserState(state.token,state.username,true))
-      currentPage.update(_ => "Home")
+      currentPage.update(_ => Page.Home)
       cloneData(state.token)
         .`then`(datasets => {
           datasetsVar.update(_ => Some(datasets.asInstanceOf[js.Array[Task_]]))
@@ -313,6 +321,7 @@ object Main:
   private val changeType: Var[String] = Var("")
   private val quality: Var[Boolean] = Var(false)
   private val comment: Var[String] = Var("")
+  private val datasetSelected: Var[String] = Var("")
   private def reInitAnnotation(): Unit =
     annotationStep.update(_=>0)
     linkType.update(_=>"")
@@ -325,44 +334,50 @@ object Main:
       println("logging out")
       dom.window.localStorage.removeItem("token")
       dom.window.localStorage.removeItem("username")
-      currentPage.update(_ => "Home")
+      currentPage.update(_ => Page.Home)
       logged.update(_=>LoggedUserState())
     } else {
       println("logging in")
-      currentPage.update(_ => "Login")
+      currentPage.update(_ => Page.Login)
     }
   }
   def header(): Element =
     navTag(
       menuTag(
         li(
-          button(onClick --> { _ => currentPage.update(_ => "Home") }, "Home")
+          button(onClick --> { _ => currentPage.update(_ => Page.Home) }, Page.Home.name)
         ),
         li(
           button(
-            onClick --> { _ => currentPage.update(_ => "Dashboard") },
+            onClick --> { _ => currentPage.update(_ => Page.Dashboard) },
             disabled <-- loggedSignal.map(!_.validated),
-            "Dashboard"
+            Page.Dashboard.name
           )
         ),
         li(
           button(
-            onClick --> { _ => currentPage.update(_ => "Maps") },
+            onClick --> { _ => currentPage.update(_ => Page.AnnotatedMaps) },
             disabled <-- loggedSignal.map(!_.validated),
-            "Maps"
+            Page.AnnotatedMaps.name
           )
         ),
         li(
           button(
-            onClick --> { _ => currentPage.update(_ => "Annotate") },
+            onClick --> { _ => currentPage.update(_ => Page.Annotate) },
             disabled <-- loggedSignal.map(!_.validated).combineWithFn(annotationFinished.signal)((a,b)=>a||b),
-            "Annotate"
+            Page.Annotate.name
           )
         ),
         li(
           button(
             onClick --> { _ => logInOut() },
-            text <-- loggedSignal.map(l=>if l.validated then "Logout" else "Login")
+            text <-- loggedSignal.map(l=>if l.validated then "Logout" else Page.Login.name)
+          )
+        ),
+        li(
+          button(
+            onClick --> { _ => currentPage.update(_ => Page.Help) },
+            Page.Help.name
           )
         )
       )
@@ -371,13 +386,14 @@ object Main:
     div(
       header(),
       child <-- currentPage.signal.splitOne(x => x) { (id, initial, signal) =>
-        println(s"Split $id")
+        println(s"Split ${id.name}")
         id match {
-          case "Home"               => renderHome()
-          case "Dashboard" => renderDashboard()
-          case "Maps"   => renderGlobalDashboard()
-          case "Annotate"           => renderAnnotate()
-          case "Login"              => renderLogin()
+          case Page.Home          => renderHome()
+          case Page.Dashboard     => renderDashboard()
+          case Page.AnnotatedMaps => renderGlobalDashboard()
+          case Page.Annotate      => renderAnnotate()
+          case Page.Login         => renderLogin()
+          case Page.Help          => renderHelp()
         }
       }
     )
@@ -385,7 +401,7 @@ object Main:
 
   def renderHome(): Element =
     div(
-      h1("Home"),
+      h1(Page.Home.name),
       p("This is an annotation app for the SUBDENSE project")
     )
   end renderHome
@@ -424,7 +440,7 @@ object Main:
       ).toList
     ).get)
     div(
-      h1("Personal Dashboard"),
+      h1(Page.Dashboard.name),
       h2(s"User: $username"),
       children <-- signal.split(_.name)(newRenderDataset)
     )
@@ -531,7 +547,12 @@ object Main:
           )
     )
     div(
-      h1("Maps"),
+      h1(Page.AnnotatedMaps.name),
+      label("Dataset: ",forId("datasetSelect")),
+      select(idAttr("datasetSelect"),
+        children <-- datasetVar.signal.map(l=>l.map(p=>option(p._1))),
+        onChange.mapToValue --> datasetSelected.updater[String]((_,value)=>value)
+      ),
       div(
         datasetVar.signal --> dsObserver,
         // Wait for the component to be mounted before adding the leaflet and syncs
@@ -629,9 +650,9 @@ object Main:
       ),
       div(cls("toolbar"),
         children(
+          linkButton("1-1"),
           linkButton("0-1"),
           linkButton("1-0"),
-          linkButton("1-1"),
           linkButton("1-m"),
           linkButton("n-1"),
           linkButton("n-m"),
@@ -650,8 +671,8 @@ object Main:
           changeButton("no change"),
           changeButton("construction"),
           changeButton("destruction"),
-          changeButton("extension"),
-          changeButton("reduction"),
+          //changeButton("extension"),
+          //changeButton("reduction"),
           changeButton("reconstruction"),
           changeButton("IDK"),
           label("Quality issue: "),input("Quality issue",`type`:="checkbox",
@@ -686,10 +707,10 @@ object Main:
                 if updated then
                   println("updated")
                   updateMaps(mapLeft,mapRight,geoJSON.now().get._1,geoJSON.now().get._2)
-                  currentPage.update(_ => "Annotate")
+                  currentPage.update(_ => Page.Annotate)
                 else
                   annotationFinished.update(_=>true)
-                  currentPage.update(_ => "Dashboard")
+                  currentPage.update(_ => Page.Dashboard)
               )
             }
           )
@@ -713,7 +734,7 @@ object Main:
   }
   def renderLogin(): Element =
     div(
-      h1("Login"),
+      h1(Page.Login.name),
       form(
         onSubmit.preventDefault.mapTo(stateVar.now()) --> submitter,
         renderInputRow(_.usernameError)(
@@ -752,4 +773,26 @@ object Main:
       p("To create one, refer to ",a("Token creation",href("https://github.com/settings/tokens/new")),". Your account has to be linked to the ",a("SUBDENSE organisation",href("https://github.com/subdense"))," and the token need the ",b("repo")," rights.")
     )
   end renderLogin
+
+  def renderHelp(): Element =
+    div(
+      h1(Page.Help.name),
+      p("Here are a few examples to help you annotate the changes."),
+      h2("No change"),
+      p("Buildings stay the same in aerial view 2011 and 2021."),
+      img(src("noChange.png")),
+      h2("Construction"),
+      p("Building is constructed on land where in 2011 there was not building."),
+      img(src("construction.png")),
+      h2("Destruction"),
+      p("Building that in 2011 existed is destructed in 2021 and no new building is constructed (yet)."),
+      img(src("destruction.png")),
+      h2("Reconstruction"),
+      p("Building from 2011 is destructed and a new building in 2021 is constructed."),
+      img(src("reconstruction.png")),
+      h2("I don't know"),
+      p("Any case which does not fit into the types above or if the aerial image is too bad to judge.")
+    )
+  end renderHelp
+
 end Main
