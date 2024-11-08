@@ -327,9 +327,9 @@ object Main:
         (groupedFeatures.getOrElse(dateLeft,js.Array()),groupedFeatures.getOrElse(dateRight,js.Array()))
       )
     def username = stateVar.now().username
-    val datasetVar: Var[js.Array[(String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])]] = Var(js.Array())
+    val datasetVar: Var[js.Array[(String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])]] = Var(js.Array())
     datasetsVar.now().map(datasets=>
-      Promise.all[(String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])](
+      Promise.all[(String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])](
         datasets.toArray
           .groupBy(_.dataset)
           .map((d,array)=>
@@ -338,69 +338,86 @@ object Main:
             ).`then`(a=>
               val b = a.asInstanceOf[js.Array[(js.Array[Feature[Geometry,GeoJsonProperties]],js.Array[Feature[Geometry,GeoJsonProperties]])]].unzip
               println(s"Left: ${b._1.flatten.toJSArray.size} - Right: ${b._2.flatten.toJSArray.size}")
-              (d.split("/").head,L.GeoJSON__[Geometry,GeoJsonProperties](FeatureCollection(b._1.flatten.toJSArray)),L.GeoJSON__[Geometry,GeoJsonProperties](FeatureCollection(b._2.flatten.toJSArray)))
+              (d.split("/").head,array.head.wmts(0),array.head.wmts(1),L.GeoJSON__[Geometry,GeoJsonProperties](FeatureCollection(b._1.flatten.toJSArray)),L.GeoJSON__[Geometry,GeoJsonProperties](FeatureCollection(b._2.flatten.toJSArray)))
             )
           ).toJSIterable
       ).`then`(result=>datasetVar.update(_=>result))
     )
-    val dsObserver = Observer[js.Array[(String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])]](
+    def updateGlobalMap(dataset: (String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])): Unit = {
+      println(s"update global Maps for dataset ${dataset._1}")
+      val colorMap = mutable.Map[String, String]()
+      val lGeoJSON = dataset._4.setStyle(f =>
+        val feature = f.asInstanceOf[Feature[Geometry, GeoJsonProperties]]
+        val c = colorMap.getOrElseUpdate(feature.properties("task").asInstanceOf[String], getColor)
+        PathOptions().setColor(c)
+      ).bindPopup(layer =>
+        val feature = layer.feature.asInstanceOf[Feature[Geometry, GeoJsonProperties]]
+        div(
+          h4(feature.properties("task").asInstanceOf[String]),
+          p(b("annotators: "), feature.properties("annotators").asInstanceOf[js.Array[String]].mkString(","))
+        ).ref
+      )
+      val rGeoJSON = dataset._5.setStyle(f =>
+        val feature = f.asInstanceOf[Feature[Geometry, GeoJsonProperties]]
+        val c = colorMap.getOrElseUpdate(feature.properties("task").asInstanceOf[String], getColor)
+        PathOptions().setColor(c)
+      ).bindPopup(layer =>
+        val feature = layer.feature.asInstanceOf[Feature[Geometry, GeoJsonProperties]]
+        div(
+          h4(feature.properties("task").asInstanceOf[String]),
+          p(b("annotators: "), feature.properties("annotators").asInstanceOf[js.Array[String]].mkString(","))
+        ).ref
+      )
+      val lMarkers = dataset._4.toGeoJSON().asInstanceOf[FeatureCollection[Geometry, GeoJsonProperties]].features.groupBy(_.properties("sample")).map((sample, features) =>
+        println(s"sample = $sample")
+        //println(s"features = ${features.length}")
+        val coords = features.flatMap(_.geometry.asInstanceOf[MultiPolygon].coordinates(0)(0)).map(p => (p(1), p(0)))
+        //println(s"coords = ${coords.length}")
+        //coords.foreach((a,b)=>println(s"p = $a, $b"))
+        val (px, py) = ((coords.map(_._1).max + coords.map(_._1).min) / 2, (coords.map(_._2).max + coords.map(_._2).min) / 2)
+        val annotators = features.map(_.properties("annotators").asInstanceOf[js.Array[String]])
+        val (noAnnotation, oneAnnotation, twoAnnotations, moreAnnotations) = (annotators.count(_.isEmpty), annotators.count(_.length == 1), annotators.count(_.length == 2), annotators.count(_.length > 2))
+        //println(s"bounds = $px - $py")
+        Marker_[GeoJsonProperties](js.Tuple3(px, py, js.undefined).asInstanceOf[LatLngTuple],
+          MarkerOptions().setIcon(makeIcon(features.length.toString, Array(
+            (noAnnotation.toDouble, "rgb(237,248,233)"),
+            (oneAnnotation.toDouble, "rgb(186,228,179)"),
+            (twoAnnotations.toDouble, "rgb(116,196,118)"),
+            (moreAnnotations.toDouble, "rgb(35,139,69)")
+          ))))
+          .bindPopup(sample.asInstanceOf[String].split("/").take(2).mkString("-"))
+          .asInstanceOf[Layer]
+      ).toJSArray
+      globalMapLeft.zip(globalMapRight).foreach((left,right) =>
+        addTileLayer(left,dataset._2)
+        addTileLayer(right,dataset._3)
+        updateMaps(left, right, lGeoJSON, rGeoJSON)
+        val group = layerGroup(lMarkers).addTo(left)
+        control.layers().addTo(left).addOverlay(group, "Annotations")
+        left.on("zoomend", (e: LeafletEvent) =>
+          if left.getZoom() < 16 then
+            left.addLayer(group)
+          else
+            left.removeLayer(group)
+          println("Event " + left.getZoom())
+        )
+      )
+    }
+
+    val dsSelectedObserver = Observer[String](
       onNext = nextValue =>
-        println("update global Maps")
-        if nextValue.nonEmpty then
-          val colorMap = mutable.Map[String,String]()
-          val lGeoJSON = nextValue.head._2.setStyle(f =>
-            val feature = f.asInstanceOf[Feature[Geometry,GeoJsonProperties]]
-            val c = colorMap.getOrElseUpdate(feature.properties("task").asInstanceOf[String],getColor)
-            PathOptions().setColor(c)
-          ).bindPopup(layer=>
-            val feature = layer.feature.asInstanceOf[Feature[Geometry,GeoJsonProperties]]
-            div(
-              h4(feature.properties("task").asInstanceOf[String]),
-              p(b("annotators: "),feature.properties("annotators").asInstanceOf[js.Array[String]].mkString(","))
-            ).ref
-          )
-          val rGeoJSON = nextValue.head._3.setStyle(f =>
-            val feature = f.asInstanceOf[Feature[Geometry,GeoJsonProperties]]
-            val c = colorMap.getOrElseUpdate(feature.properties("task").asInstanceOf[String],getColor)
-            PathOptions().setColor(c)
-          ).bindPopup(layer=>
-            val feature = layer.feature.asInstanceOf[Feature[Geometry,GeoJsonProperties]]
-            div(
-              h4(feature.properties("task").asInstanceOf[String]),
-              p(b("annotators: "),feature.properties("annotators").asInstanceOf[js.Array[String]].mkString(","))
-            ).ref
-          )
-          val lMarkers = nextValue.head._2.toGeoJSON().asInstanceOf[FeatureCollection[Geometry,GeoJsonProperties]].features.groupBy(_.properties("sample")).map((sample,features)=>
-            println(s"sample = $sample")
-            //println(s"features = ${features.length}")
-            val coords = features.flatMap(_.geometry.asInstanceOf[MultiPolygon].coordinates(0)(0)).map(p=>(p(1),p(0)))
-            //println(s"coords = ${coords.length}")
-            //coords.foreach((a,b)=>println(s"p = $a, $b"))
-            val (px,py) = ((coords.map(_._1).max + coords.map(_._1).min)/2,(coords.map(_._2).max + coords.map(_._2).min)/2)
-            val annotators = features.map(_.properties("annotators").asInstanceOf[js.Array[String]])
-            val (noAnnotation,oneAnnotation,twoAnnotations,moreAnnotations) = (annotators.count(_.isEmpty),annotators.count(_.length == 1),annotators.count(_.length == 2),annotators.count(_.length > 2))
-            //println(s"bounds = $px - $py")
-            Marker_[GeoJsonProperties](js.Tuple3(px,py,js.undefined).asInstanceOf[LatLngTuple],
-              MarkerOptions().setIcon(makeIcon(features.length.toString, Array(
-                (noAnnotation.toDouble,"rgb(237,248,233)"),
-                (oneAnnotation.toDouble,"rgb(186,228,179)"),
-                (twoAnnotations.toDouble,"rgb(116,196,118)"),
-                (moreAnnotations.toDouble,"rgb(35,139,69)")
-              ))))
-              .bindPopup(sample.asInstanceOf[String].split("/").take(2).mkString("-"))
-              .asInstanceOf[Layer]
-          ).toJSArray
-          if (globalMapLeft.isDefined && globalMapRight.isDefined)
-            updateMaps(globalMapLeft.get, globalMapRight.get, lGeoJSON, rGeoJSON)
-            val group = layerGroup(lMarkers).addTo(globalMapLeft.get)
-            control.layers().addTo(globalMapLeft.get).addOverlay(group,"Annotations")
-            globalMapLeft.get.on("zoomend",(e:LeafletEvent) =>
-              if globalMapLeft.get.getZoom() < 16 then
-                globalMapLeft.get.addLayer(group)
-              else
-                globalMapLeft.get.removeLayer(group)
-              println("Event " + globalMapLeft.get.getZoom())
-            )
+        val datasets = datasetVar.now()
+        val ds = datasets.find(_._1 == nextValue)
+        ds.foreach(dataset => updateGlobalMap(dataset))
+    )
+    val dsObserver = Observer[js.Array[(String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])]](
+      onNext = nextValue =>
+        if !nextValue.isEmpty then
+          println(s"dsObserver with ${nextValue.length} elements")
+          println(s"dsObserver with ${nextValue.head} as head")
+          val dsName = datasetSelected.now()
+          val ds = if dsName.isEmpty then Some(nextValue.head) else nextValue.find(_._1 == dsName)
+          ds.foreach(dataset=>updateGlobalMap(dataset))
     )
     div(
       h1(Page.AnnotatedMaps.name),
@@ -408,7 +425,8 @@ object Main:
       select(idAttr("datasetSelect"),
         value <-- datasetSelected.signal,
         children <-- datasetVar.signal.map(l=>l.map(p=>option(p._1))),
-        onChange.mapToValue --> datasetSelected
+        onChange.mapToValue --> datasetSelected,
+        datasetSelected.signal --> dsSelectedObserver
       ),
       div(
         datasetVar.signal --> dsObserver,
@@ -416,11 +434,11 @@ object Main:
         onMountCallback(ctx =>
           val (l,r) = (map("globalMapLeft",true),map("globalMapRight",false))
           globalMapLeft = Some(l)
-          println(s"wmts left = ${taskState.now().wms1}")
-          addTileLayer(l,taskState.now().wms1)
-          println(s"wmts right = ${taskState.now().wms2}")
+          //println(s"wmts left = ${taskState.now().wms1}")
+          //addTileLayer(l,taskState.now().wms1)
           globalMapRight = Some(r)
-          addTileLayer(r,taskState.now().wms2)
+          //println(s"wmts right = ${taskState.now().wms2}")
+          //addTileLayer(r,taskState.now().wms2)
           l.sync(r, SyncMapOptions())
           r.sync(l, SyncMapOptions())
         ),
@@ -456,8 +474,9 @@ object Main:
     val split = wmts.split('?')
     val baseUrl = split.head
     val layers = split(1).split(',')
-    for (layer <- layers) {
-      if baseUrl.contains("wmts") then
+    println(s"addTileLayer with url $baseUrl and layers = $layers")
+    if baseUrl.contains("wmts") then
+      for (layer <- layers) {
         tileLayer(
           s"$baseUrl?" +
             "&REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0" +
@@ -470,11 +489,11 @@ object Main:
             "&TILECOL={x}",
           TileLayerOptions().setMinZoom(0).setMaxZoom(20).setMaxNativeZoom(18).setAttribution("IGN-F/Geoportail").setTileSize(256)
         ).addTo(map)
-      else
-        tileLayer.wms(s"$baseUrl?",
-          WMSOptions().setMinZoom(0).setMaxZoom(20).setMaxNativeZoom(18).setAttribution(baseUrl)
-        ).addTo(map)
-    }
+      }
+    else
+      tileLayer.wms(s"$baseUrl?",
+        WMSOptions().setMinZoom(0).setMaxZoom(20).setMaxNativeZoom(18).setAttribution(baseUrl).setLayers(layers.mkString(","))
+      ).addTo(map)
 
   /*
   tileLayer(
