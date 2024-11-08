@@ -333,21 +333,26 @@ object Main:
       )
     def username = stateVar.now().username
     val datasetVar: Var[js.Array[(String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])]] = Var(js.Array())
-    datasetsVar.now().map(datasets=>
-      Promise.all[(String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])](
-        datasets.toArray
-          .groupBy(_.dataset)
-          .map((d,array)=>
-            Promise.all[(js.Array[Feature[Geometry,GeoJsonProperties]],js.Array[Feature[Geometry,GeoJsonProperties]])](
-              array.map(taskFeatures(taskState.now().date1,taskState.now().date2)).toJSArray
-            ).`then`(a=>
-              val b = a.asInstanceOf[js.Array[(js.Array[Feature[Geometry,GeoJsonProperties]],js.Array[Feature[Geometry,GeoJsonProperties]])]].unzip
-              println(s"Left: ${b._1.flatten.toJSArray.size} - Right: ${b._2.flatten.toJSArray.size}")
-              (d.split("/").head,array.head.wmts(0),array.head.wmts(1),L.GeoJSON__[Geometry,GeoJsonProperties](FeatureCollection(b._1.flatten.toJSArray)),L.GeoJSON__[Geometry,GeoJsonProperties](FeatureCollection(b._2.flatten.toJSArray)))
-            )
-          ).toJSIterable
-      ).`then`(result=>datasetVar.update(_=>result))
+    val datasetsVarObserver = Observer[Option[js.Array[Task_]]](
+      onNext = nextValue =>
+        println("datasetsVarObserver with " + nextValue.isDefined)
+        nextValue.map(datasets=>
+          Promise.all[(String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])](
+            datasets.toArray
+              .groupBy(_.dataset)
+              .map((d,array)=>
+                Promise.all[(js.Array[Feature[Geometry,GeoJsonProperties]],js.Array[Feature[Geometry,GeoJsonProperties]])](
+                  array.map(taskFeatures(taskState.now().date1,taskState.now().date2)).toJSArray
+                ).`then`(a=>
+                  val b = a.asInstanceOf[js.Array[(js.Array[Feature[Geometry,GeoJsonProperties]],js.Array[Feature[Geometry,GeoJsonProperties]])]].unzip
+                  println(s"Left: ${b._1.flatten.toJSArray.size} - Right: ${b._2.flatten.toJSArray.size}")
+                  (d.split("/").head,array.head.wmts(0),array.head.wmts(1),L.GeoJSON__[Geometry,GeoJsonProperties](FeatureCollection(b._1.flatten.toJSArray)),L.GeoJSON__[Geometry,GeoJsonProperties](FeatureCollection(b._2.flatten.toJSArray)))
+                )
+              ).toJSIterable
+          ).`then`(v=>datasetVar.set(v))
+        )
     )
+
     def updateGlobalMap(dataset: (String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])): Unit = {
       println(s"update global Maps for dataset ${dataset._1}")
       val colorMap = mutable.Map[String, String]()
@@ -445,7 +450,8 @@ object Main:
           div(idAttr("globalMapRight"), cls("mapRight"), cls("map"),
           )
         ),
-      )
+      ),
+      datasetsVar.signal --> datasetsVarObserver
     )
   end renderGlobalDashboard
 
@@ -555,7 +561,18 @@ object Main:
                 //println(s"now\n${JSON.stringify(content, space=2)}")
                 write(s"$dir/$sampleFile",JSON.stringify(content, space=2))
                 gitPush(stateVar.now().username, stateVar.now().token, sampleFile, s"Update $taskFile for ${annotation.username}")
-                //datasetVar
+                datasetsVar.update(datasets=>datasets.map(_.map(t=>if t.task.task == taskFile
+                then
+                  val newTask = Task_()
+                  newTask.dataset = t.dataset
+                  newTask.dates = t.dates
+                  newTask.wmts = t.wmts
+                  newTask.sample = t.sample
+                  newTask.task = Task()
+                  newTask.task.task = taskFile
+                  newTask.task.annotations = task.annotations
+                  newTask
+                else t)))
               )
               nextFeature().`then`(updated=>
                 if updated then
