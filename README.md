@@ -32,3 +32,6 @@ npm run build
 - annotated vs not annotated
 - annotated types (majority?)
 - annotation conflict?
+
+## Acknowledgments
+Loading_2.gif from KopiteCowboy, CC BY-SA 4.0 <https://creativecommons.org/licenses/by-sa/4.0>, via Wikimedia Commons
