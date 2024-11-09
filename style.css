@@ -46,14 +46,11 @@ menu {
   float: right;
 }
 
-.leaflet-div-icon b {
+.leaflet-div-icon {
   display: inline-block;
-  border: 2 px solid#666;
-  border-radius: 30px;
-  transform: translate(-50%, -50%);
-  width: 60px;
-  height: 60px;
   align-content: center;
+  background: none;
+  border: none;
 }
 li {
   margin: 0 1em;

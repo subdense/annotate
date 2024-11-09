@@ -20,6 +20,8 @@ import typings.leaflet.mod.*
 import typings.leaflet.mod.PathOptions.MutableBuilder
 import typings.leafletSync.*
 import typings.leafletSync.leafletMod.{Map as SMap, *}
+import typings.turfCentroid.mod.*
+import typings.turfHelpers.mod.AllGeoJSON
 
 import scala.annotation.tailrec
 import scala.collection.mutable
@@ -308,10 +310,14 @@ object Main:
 
   private def makeIcon(text: String, values: Array[(Double,String)]) =
     val sum = values.map(_._1).sum
-    divIcon(DivIconOptions().setHtml(b(
-    text,
-    background("conic-gradient("+values.foldLeft((List[String](),0.0))((acc,tuple)=>(acc._1++List(s"${tuple._2} ${acc._2}deg",s"${tuple._2} ${acc._2 + tuple._1*360/sum}deg"),acc._2 + tuple._1*360/sum))._1.mkString(",")+")")
-  ).ref))
+    divIcon(DivIconOptions().setHtml(div(
+      b(text),
+      background("conic-gradient(" + values.foldLeft((List[String](), 0.0))((acc, tuple) => (acc._1 ++ List(s"${tuple._2} ${acc._2}deg", s"${tuple._2} ${acc._2 + tuple._1 * 360 / sum}deg"), acc._2 + tuple._1 * 360 / sum))._1.mkString(",") + ")"),
+      width(sum*2+"px"),
+      height(sum*2+"px"),
+      borderRadius(sum+"px"),
+      alignContent("center")
+    ).ref).setIconSize(Point_(sum*2,sum*2)))
 
   def renderGlobalDashboard(): Element =
     def taskFeatures(dateLeft: String, dateRight: String)(task: Task_): Promise[(js.Array[Feature[Geometry,GeoJsonProperties]],js.Array[Feature[Geometry,GeoJsonProperties]])] =
@@ -356,7 +362,7 @@ object Main:
     def updateGlobalMap(dataset: (String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])): Unit = {
       println(s"update global Maps for dataset ${dataset._1}")
       val colorMap = mutable.Map[String, String]()
-      val lGeoJSON = dataset._4.setStyle(f =>
+      def styled(geojson: GeoJSON__[Geometry,GeoJsonProperties]):GeoJSON__[Geometry,GeoJsonProperties] = geojson.setStyle(f =>
         val feature = f.asInstanceOf[Feature[Geometry, GeoJsonProperties]]
         val c = colorMap.getOrElseUpdate(feature.properties("task").asInstanceOf[String], getColor)
         PathOptions().setColor(c)
@@ -367,19 +373,9 @@ object Main:
           p(b("annotators: "), feature.properties("annotators").asInstanceOf[js.Array[String]].mkString(","))
         ).ref
       )
-      val rGeoJSON = dataset._5.setStyle(f =>
-        val feature = f.asInstanceOf[Feature[Geometry, GeoJsonProperties]]
-        val c = colorMap.getOrElseUpdate(feature.properties("task").asInstanceOf[String], getColor)
-        PathOptions().setColor(c)
-      ).bindPopup(layer =>
-        val feature = layer.feature.asInstanceOf[Feature[Geometry, GeoJsonProperties]]
-        div(
-          h4(feature.properties("task").asInstanceOf[String]),
-          p(b("annotators: "), feature.properties("annotators").asInstanceOf[js.Array[String]].mkString(","))
-        ).ref
-      )
-      val lMarkers = dataset._4.toGeoJSON().asInstanceOf[FeatureCollection[Geometry, GeoJsonProperties]].features.groupBy(_.properties("sample")).map((sample, features) =>
-        println(s"sample = $sample")
+      val lGeoJSON = styled(dataset._4)
+      val rGeoJSON = styled(dataset._5)
+      def sampleMarkers(fc:FeatureCollection[Geometry, GeoJsonProperties]): js.Array[Layer] = fc.features.groupBy(_.properties("sample")).map((sample, features) =>
         val coords = features.flatMap(_.geometry.asInstanceOf[MultiPolygon].coordinates(0)(0)).map(p => (p(1), p(0)))
         val (px, py) = ((coords.map(_._1).max + coords.map(_._1).min) / 2, (coords.map(_._2).max + coords.map(_._2).min) / 2)
         val annotators = features.map(_.properties("annotators").asInstanceOf[js.Array[String]])
@@ -393,20 +389,48 @@ object Main:
           ))))
           .bindPopup(layer=>div(
             h4(sample.asInstanceOf[String].split("/").take(2).mkString("-")),
-            p(b("no annotation: "),noAnnotation),br(),p(b("one annotation: "),oneAnnotation),br(),
-            p(b("two annotations: "),twoAnnotations),br(),p(b("more annotations: "),moreAnnotations),br()
+            p(b("no annotation: "),noAnnotation),p(b("one annotation: "),oneAnnotation),
+            p(b("two annotations: "),twoAnnotations),p(b("more annotations: "),moreAnnotations)
           ).ref).asInstanceOf[Layer]
       ).toJSArray
+      def taskMarkers(fc:FeatureCollection[Geometry, GeoJsonProperties]): js.Array[Layer] = fc.features.map(feature=>
+        val annotators = feature.properties("annotators").asInstanceOf[js.Array[String]]
+        val point = centroid[GeoJsonProperties](feature).geometry
+        Marker_[GeoJsonProperties](js.Tuple3(point.coordinates(1), point.coordinates(0), js.undefined).asInstanceOf[LatLngTuple],
+          MarkerOptions().setIcon(makeIcon(annotators.length.toString, Array(
+            (annotators.length.toDouble+10, "rgb(237,248,233)")
+          )))
+        ).bindPopup(layer=>div(
+          h4("Annotations: " + annotators.length)
+        ).ref)
+      ).toJSArray
+      val leftFC:FeatureCollection[Geometry, GeoJsonProperties] = dataset._4.toGeoJSON().asInstanceOf[FeatureCollection[Geometry, GeoJsonProperties]]
+      val leftSampleMarkers: js.Array[Layer] = sampleMarkers(leftFC)
+      val leftTaskMarkers: js.Array[Layer] = taskMarkers(leftFC)
+      val rightFC:FeatureCollection[Geometry, GeoJsonProperties] = dataset._5.toGeoJSON().asInstanceOf[FeatureCollection[Geometry, GeoJsonProperties]]
+      val rightSampleMarkers: js.Array[Layer] = sampleMarkers(rightFC)
+      val rightTaskMarkers: js.Array[Layer] = taskMarkers(rightFC)
       globalMapLeft.zip(globalMapRight).foreach((left,right) =>
-        if globalMapLeftControl.isDefined then left.removeControl(globalMapLeftControl.get)
+        globalMapLeftControl.foreach(left.removeControl)
+        globalMapRightControl.foreach(right.removeControl)
         updateMaps(left, right, lGeoJSON, rGeoJSON, Some(dataset._2), Some(dataset._3))
-        val group = layerGroup(lMarkers).addTo(left)
-        val controls = control.layers().addTo(left).addOverlay(group, "Annotation progress at the sample level")
-        globalMapLeftControl = Some(controls)
-        left.on("zoomend", (e: LeafletEvent) => {
-          if left.getZoom() < 16 then left.addLayer(group)
-          else left.removeLayer(group)
-        }:Unit)
+        def updateGroups(map: Map_, sampleMarkers: js.Array[Layer], taskMarkers: js.Array[Layer]):Control_.Layers =
+          val sampleGroup = layerGroup(sampleMarkers).addTo(map)
+          val taskGroup = layerGroup(taskMarkers)
+          val controls = control.layers().addTo(map).addOverlay(sampleGroup, "Annotation progress at the sample level").addOverlay(taskGroup, "Annotations at the task level")
+          map.on("zoomend", (e: LeafletEvent) => {
+            if map.getZoom() < 16 then
+              map.addLayer(sampleGroup)
+              map.removeLayer(taskGroup)
+            else
+              map.removeLayer(sampleGroup)
+              map.addLayer(taskGroup)
+          }:Unit)
+          controls
+        val leftControls = updateGroups(left,leftSampleMarkers,leftTaskMarkers)
+        globalMapLeftControl = Some(leftControls)
+        val rightControls = updateGroups(right,rightSampleMarkers,rightTaskMarkers)
+        globalMapRightControl = Some(rightControls)
       )
     }
 
@@ -682,6 +706,7 @@ final class Model {
   var mapRight: Option[Map_] = None
   var globalMapLeft: Option[Map_] = None
   var globalMapLeftControl: Option[Control_.Layers] = None
+  var globalMapRightControl: Option[Control_.Layers] = None
   var globalMapRight: Option[Map_] = None
   val annotationFinished: Var[Boolean] = Var(false)
   case class AnnotationState(linkType: String = "", changeType: String = "", quality: Boolean = false, comment: String = "", step: Int = 0)
