@@ -27,9 +27,6 @@ lazy val annotator = project.in(file("."))
      */
     libraryDependencies += "org.scala-js" %%% "scalajs-dom" % "2.8.0",
     libraryDependencies += "com.raquo" %%% "laminar" % "17.0.0",
-    libraryDependencies += "com.raquo" %%% "waypoint" % "8.0.1",
-    libraryDependencies += "com.lihaoyi" %%% "upickle" % "2.0.0",
-    //libraryDependencies += "org.eclipse.jgit" % "org.eclipse.jgit" % "7.0.0.202409031743-r",
     // Depends on Airstream 17.0.0 & URL DSL 0.6.2
     // Tell ScalablyTyped that we manage `npm install` ourselves
     externalNpm := baseDirectory.value,
