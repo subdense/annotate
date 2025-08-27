@@ -485,12 +485,12 @@ object Main:
   private def linkButton(name: String): Element =
     button(name,typ("button"),
       backgroundColor <-- annotationState.signal.map(_.linkType).map(link=>if link == name then "Silver" else "WhiteSmoke"),
-      onClick --> { _ => annotationState.update(state=>state.copy(linkType = name, step=1)) }
+      onClick --> { _ => annotationState.update(state=>state.copy(linkType = name, step=1)); println(s"linkType: ${annotationState.now().linkType}") }
     )
   private def changeButton(name: String): Element =
     button(name,typ("button"),
       backgroundColor <-- annotationState.signal.map(_.changeType).map(change=>if change == name then "Silver" else "WhiteSmoke"),
-      onClick --> { _ => annotationState.update(state=>state.copy(changeType = name)) }
+      onClick --> { _ => annotationState.update(state=>state.copy(changeType = name)); ; println(s"changeType: ${annotationState.now().changeType}") }
     )
 
   def map(name: String, left: Boolean): Map_ =
