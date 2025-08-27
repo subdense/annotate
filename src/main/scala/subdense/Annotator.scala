@@ -569,7 +569,7 @@ object Main:
             backgroundColor := "Crimson",
             disabled <-- annotationState.signal.map(_.changeType == ""),
             onClick --> { _ =>
-              println("save")
+              println(s"save: annotationState: link: ${annotationState.now().linkType} ; change: ${annotationState.now().changeType}")
               val sampleFile = taskState.now().sampleFile
               val taskFile = taskState.now().taskFile
               read[Sample](s"$dir/$sampleFile").`then`(content =>
