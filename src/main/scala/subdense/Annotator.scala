@@ -581,6 +581,8 @@ object Main:
                 annotation.change = annotationState.now().changeType
                 annotation.quality = annotationState.now().quality
                 annotation.comment = annotationState.now().comment
+                println(s"annotation: $annotation")
+                println(s"annotationState: $annotationState")                                       
                 task.annotations.push(annotation)
                 //println(s"now\n${JSON.stringify(content, space=2)}")
                 write(s"$dir/$sampleFile",JSON.stringify(content, space=2))
