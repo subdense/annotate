@@ -485,12 +485,12 @@ object Main:
   private def linkButton(name: String): Element =
     button(name,typ("button"),
       backgroundColor <-- annotationState.signal.map(_.linkType).map(link=>if link == name then "Silver" else "WhiteSmoke"),
-      onClick --> { _ => annotationState.update(state=>state.copy(linkType = name, step=1)) }
+      onClick --> { _ => annotationState.update(state=>state.copy(linkType = name, step=1)); println(s"linkType: ${annotationState.now().linkType}") }
     )
   private def changeButton(name: String): Element =
     button(name,typ("button"),
       backgroundColor <-- annotationState.signal.map(_.changeType).map(change=>if change == name then "Silver" else "WhiteSmoke"),
-      onClick --> { _ => annotationState.update(state=>state.copy(changeType = name)) }
+      onClick --> { _ => annotationState.update(state=>state.copy(changeType = name)); ; println(s"changeType: ${annotationState.now().changeType}") }
     )
 
   def map(name: String, left: Boolean): Map_ =
@@ -569,7 +569,7 @@ object Main:
             backgroundColor := "Crimson",
             disabled <-- annotationState.signal.map(_.changeType == ""),
             onClick --> { _ =>
-              println("save")
+              println(s"save: annotationState: link: ${annotationState.now().linkType} ; change: ${annotationState.now().changeType}")
               val sampleFile = taskState.now().sampleFile
               val taskFile = taskState.now().taskFile
               read[Sample](s"$dir/$sampleFile").`then`(content =>
@@ -581,6 +581,8 @@ object Main:
                 annotation.change = annotationState.now().changeType
                 annotation.quality = annotationState.now().quality
                 annotation.comment = annotationState.now().comment
+                println(s"annotation: link: ${annotation.link} ; change: ${annotation.change}")
+                println(s"annotationState: link: ${annotationState.now().linkType} ; change: ${annotationState.now().changeType}")                                       
                 task.annotations.push(annotation)
                 //println(s"now\n${JSON.stringify(content, space=2)}")
                 write(s"$dir/$sampleFile",JSON.stringify(content, space=2))
