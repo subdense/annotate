@@ -21,7 +21,6 @@ import typings.leaflet.mod.PathOptions.MutableBuilder
 import typings.leafletSync.*
 import typings.leafletSync.leafletMod.{Map as SMap, *}
 import typings.turfCentroid.mod.*
-import typings.turfHelpers.mod.AllGeoJSON
 
 import scala.annotation.tailrec
 import scala.collection.mutable
@@ -485,12 +484,12 @@ object Main:
   private def linkButton(name: String): Element =
     button(name,typ("button"),
       backgroundColor <-- annotationState.signal.map(_.linkType).map(link=>if link == name then "Silver" else "WhiteSmoke"),
-      onClick --> { _ => annotationState.update(state=>state.copy(linkType = name, step=1)); println(s"linkType: ${annotationState.now().linkType}") }
+      onClick --> { _ => annotationState.update(_.copy(linkType = name, step=1)); println(s"linkType: ${annotationState.now().linkType}") }
     )
   private def changeButton(name: String): Element =
     button(name,typ("button"),
       backgroundColor <-- annotationState.signal.map(_.changeType).map(change=>if change == name then "Silver" else "WhiteSmoke"),
-      onClick --> { _ => annotationState.update(state=>state.copy(changeType = name)); ; println(s"changeType: ${annotationState.now().changeType}") }
+      onClick --> { _ => annotationState.update(_.copy(changeType = name)); ; println(s"changeType: ${annotationState.now().changeType}") }
     )
 
   def map(name: String, left: Boolean): Map_ =
@@ -549,19 +548,19 @@ object Main:
           linkButton("1-1"),linkButton("0-1"),linkButton("1-0"),linkButton("1-m"),linkButton("n-1"),linkButton("n-m"),linkButton("other"),
           button(">",
             backgroundColor := "Orchid",
-            disabled <-- annotationState.signal.map(_.linkType).map(link=> link == ""),
-            onClick --> { _ => annotationState.update(state=>state.copy(step=1)) }
+            disabled <-- annotationState.signal.map(_.linkType).map(_.isEmpty),
+            onClick --> { _ => annotationState.update(_.copy(step=1)) }
           )
         ) <-- annotationState.signal.map(_.step==0),
         children(
           button("<",
             backgroundColor := "Orchid",
-            onClick --> { _ => annotationState.update(state=>state.copy(step=0)) }
+            onClick --> { _ => annotationState.update(_.copy(step=0)) }
           ),
           changeButton("no change"),changeButton("construction"),changeButton("destruction"),changeButton("reconstruction"),changeButton("IDK"),
           label("Quality issue: "),input("Quality issue",`type`:="checkbox",
             checked <-- annotationState.signal.map(_.quality),
-            inContext( thisNode => onClick --> { _=> annotationState.update(state=>state.copy(quality = thisNode.ref.checked)) } )
+            inContext( thisNode => onClick --> { _=> annotationState.update(_.copy(quality = thisNode.ref.checked)) } )
           ),
           input("Comment",placeholder := "Any comment?",value <-- annotationState.signal.map(_.comment),
             onInput.mapToValue --> annotationState.updater[String]((state,commentValue)=>state.copy(comment=commentValue))),
@@ -569,24 +568,28 @@ object Main:
             backgroundColor := "Crimson",
             disabled <-- annotationState.signal.map(_.changeType == ""),
             onClick --> { _ =>
-              println(s"save: annotationState: link: ${annotationState.now().linkType} ; change: ${annotationState.now().changeType}")
-              val sampleFile = taskState.now().sampleFile
-              val taskFile = taskState.now().taskFile
+              val currentAnnotationState = annotationState.now()
+              val currentTaskState = taskState.now()
+              val currentUserState = stateVar.now()
+              println(s"save: annotationState: $currentAnnotationState")
+              //println(s"save: annotationState: link: ${currentAnnotationState.linkType} ; change: ${currentAnnotationState.changeType}")
+              val sampleFile = currentTaskState.sampleFile
+              val taskFile = currentTaskState.taskFile
               read[Sample](s"$dir/$sampleFile").`then`(content =>
                 //println(s"read $sampleFile:\n${JSON.stringify(content, space=2)}")
                 val task = content.tasks.find(_.task == taskFile).get
                 val annotation = Annotation()
-                annotation.username = stateVar.now().username
-                annotation.link = annotationState.now().linkType
-                annotation.change = annotationState.now().changeType
-                annotation.quality = annotationState.now().quality
-                annotation.comment = annotationState.now().comment
-                println(s"annotation: link: ${annotation.link} ; change: ${annotation.change}")
-                println(s"annotationState: link: ${annotationState.now().linkType} ; change: ${annotationState.now().changeType}")                                       
+                annotation.username = currentUserState.username
+                annotation.link = currentAnnotationState.linkType
+                annotation.change = currentAnnotationState.changeType
+                annotation.quality = currentAnnotationState.quality
+                annotation.comment = currentAnnotationState.comment
+                //println(s"annotation: link: ${annotation.link} ; change: ${annotation.change}")
+                //println(s"annotationState: link: ${currentAnnotationState.linkType} ; change: ${currentAnnotationState.changeType}")
                 task.annotations.push(annotation)
                 //println(s"now\n${JSON.stringify(content, space=2)}")
                 write(s"$dir/$sampleFile",JSON.stringify(content, space=2))
-                gitPush(stateVar.now().username, stateVar.now().token, sampleFile, s"Update $taskFile for ${annotation.username}")
+                gitPush(currentUserState.username, currentUserState.token, sampleFile, s"Update $taskFile for ${annotation.username}")
                 datasetsVar.update(datasets=>datasets.map(_.map(t=>if t.task.task == taskFile
                 then
                   val newTask = Task_()
@@ -701,7 +704,7 @@ final class Model {
   val currentPage: Var[Page] = Var(Page.Home)
   val geoJSON: Var[Option[(GeoJSON__[Geometry, GeoJsonProperties], GeoJSON__[Geometry, GeoJsonProperties])]] = Var(None)
   case class TaskState(date1: String="", date2: String="", wms1: String="", wms2: String="", sampleFile: String="", taskFile:String="")
-  val taskState = Var(TaskState())
+  val taskState: Var[TaskState] = Var(TaskState())
   val datasetsVar: Var[Option[js.Array[Task_]]] = Var(None)
   private var iterator: Option[Iterator[Task_]] = None
   var mapLeft: Option[Map_] = None
@@ -712,7 +715,7 @@ final class Model {
   var globalMapRight: Option[Map_] = None
   val annotationFinished: Var[Boolean] = Var(false)
   case class AnnotationState(linkType: String = "", changeType: String = "", quality: Boolean = false, comment: String = "", step: Int = 0)
-  val annotationState = Var(AnnotationState())
+  val annotationState: Var[AnnotationState] = Var(AnnotationState())
   val datasetSelected: Var[String] = Var("")
 
   case class UserState(username: String = "",token: String = "",showErrors: Boolean = false,validated: Boolean = false) {
