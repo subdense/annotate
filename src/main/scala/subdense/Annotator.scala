@@ -21,10 +21,13 @@ import typings.leaflet.mod.PathOptions.MutableBuilder
 import typings.leafletSync.*
 import typings.leafletSync.leafletMod.{Map as SMap, *}
 import typings.turfCentroid.mod.*
+import upickle.default.{read, ReadWriter}
 
 import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.language.implicitConversions
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Future
 import scala.scalajs.js
 import scala.scalajs.js.JSConverters.*
 import scala.scalajs.js.URIUtils.encodeURIComponent
@@ -92,15 +95,26 @@ class Task_ extends js.Object {
 val client = IndexedDbFsClient("my-repos")
 val dir = "/datasets"
 
+/**
+ * App configuration
+ * @param url url of git repo for data ("instantation" of the app)
+ */
+case class Config(url: String) derives ReadWriter
+
+// read the config from config.json file, added from CI of the instantiation repo
+// TODO default config from resources to deploy even if not instantiated?
+val configFuture: Future[Config] = dom.fetch("/config.json").toFuture.flatMap(_.text().toFuture).map { jsonString => read[Config](jsonString)}
+
 def read[T](file: String, parse: Boolean = true): Promise[T] = client.readFile(file, EncodingOptions().setEncoding(utf8))
   .`then`(content => (if parse then JSON.parse(content.asInstanceOf[String]) else content).asInstanceOf[T])
 
 def write(file: String, content: String): Promise[Unit] = client.writeFile(file, content, EncodingOptions().setEncoding(utf8))
 
 def cloneData(token: String): Promise[js.Array[Task_]] =
+  // TODO add proxy option and cors urls in config
   val useIsomorphicProxy = true
   val proxy = if useIsomorphicProxy then "https://cors.isomorphic-git.org" else "https://gitcorsproxy.vercel.app/api/cors"
-  val url = "https://github.com/subdense/private_datasets.git"
+  val url = configFuture.map(_.url)
   val http_ = """^https?:\/\/"""
   def transform(url:String,b:js.UndefOr[Boolean]) = if useIsomorphicProxy then s"$proxy/${url.replaceAll(http_, "")}" else s"$proxy?url=${encodeURIComponent(url)}"
   client.rm(dir, RmOptions().setRecursive(true).setForce(true))

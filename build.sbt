@@ -26,6 +26,7 @@ lazy val annotator = project.in(file("."))
      * It provides static types for the browser DOM APIs.
      */
     libraryDependencies += "org.scala-js" %%% "scalajs-dom" % "2.8.0",
+    libraryDependencies += "com.lihaoyi" %%% "upickle" % "4.0.2",
     libraryDependencies += "com.raquo" %%% "laminar" % "17.0.0",
     // Depends on Airstream 17.0.0 & URL DSL 0.6.2
     // Tell ScalablyTyped that we manage `npm install` ourselves
