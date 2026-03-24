@@ -3,6 +3,7 @@ import org.scalajs.linker.interface.ModuleSplitStyle
 lazy val annotator = project.in(file("."))
   .enablePlugins(ScalaJSPlugin) // Enable the Scala.js plugin in this project
   .enablePlugins(ScalablyTypedConverterExternalNpmPlugin)
+  .enablePlugins(BuildInfoPlugin)
   .settings(
     scalaVersion := "3.3.3",
 
@@ -31,4 +32,14 @@ lazy val annotator = project.in(file("."))
     // Depends on Airstream 17.0.0 & URL DSL 0.6.2
     // Tell ScalablyTyped that we manage `npm install` ourselves
     externalNpm := baseDirectory.value,
+
+    buildInfoKeys := Seq[BuildInfoKey](
+       name,
+       version,
+       scalaVersion,
+       BuildInfoKey.action("configJson") {
+          scala.io.Source.fromFile("src/main/resources/config.json").getLines().mkString
+        }
+      ),
+      buildInfoPackage := "subdense"
   )

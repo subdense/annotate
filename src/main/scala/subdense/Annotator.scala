@@ -3,7 +3,7 @@ package subdense
 import com.raquo.laminar.api.L.{*, given}
 import com.raquo.laminar.nodes.ReactiveHtmlElement
 import org.scalajs.dom
-import org.scalajs.dom.{HTMLDivElement, HTMLElement}
+import org.scalajs.dom.{HTMLDivElement, HTMLElement, Response}
 import typings.geojson.mod.*
 import typings.gitEssentials.clientsFsIndexedDbFsClientMod.IndexedDbFsClient
 import typings.gitEssentials.clientsHttpWebHttpClientMod.makeWebHttpClient
@@ -33,6 +33,8 @@ import scala.scalajs.js.JSConverters.*
 import scala.scalajs.js.URIUtils.encodeURIComponent
 import scala.scalajs.js.{JSON, Promise}
 
+import subdense.BuildInfo
+
 val leftRightStyle = PathOptions().setColor("#ff7800").setWeight(5).setOpacity(0.25).setDashArray("20 20").setDashOffset("10").setFill(false)
 val leftLeftStyle = PathOptions().setColor("#78ff00").setWeight(2).setOpacity(0.8).setFill(false)
 val rightRightStyle = PathOptions().setColor("#ff7800").setWeight(2).setOpacity(0.8).setFill(false)
@@ -52,6 +54,15 @@ def hsl2rgb (h: Double, s: Double, l:Double) =
   (f(0),f(8),f(4))
 
 def getColor = toHexString(hsl2rgb(rnd.nextDouble()*360,0.8,0.5))
+
+/**
+ * App configuration
+ * @param url url of git repo for data ("instantation" of the app)
+ */
+class Config extends js.Object {
+  var url: String = _
+}
+
 
 class DatasetList extends js.Object {
   var datasets: js.Array[String] = _
@@ -95,16 +106,6 @@ class Task_ extends js.Object {
 val client = IndexedDbFsClient("my-repos")
 val dir = "/datasets"
 
-/**
- * App configuration
- * @param url url of git repo for data ("instantation" of the app)
- */
-case class Config(url: String) derives ReadWriter
-
-// read the config from config.json file, added from CI of the instantiation repo
-// TODO default config from resources to deploy even if not instantiated?
-val configFuture: Future[Config] = dom.fetch("/config.json").toFuture.flatMap(_.text().toFuture).map { jsonString => read[Config](jsonString)}
-
 def read[T](file: String, parse: Boolean = true): Promise[T] = client.readFile(file, EncodingOptions().setEncoding(utf8))
   .`then`(content => (if parse then JSON.parse(content.asInstanceOf[String]) else content).asInstanceOf[T])
 
@@ -114,7 +115,12 @@ def cloneData(token: String): Promise[js.Array[Task_]] =
   // TODO add proxy option and cors urls in config
   val useIsomorphicProxy = true
   val proxy = if useIsomorphicProxy then "https://cors.isomorphic-git.org" else "https://gitcorsproxy.vercel.app/api/cors"
-  val url = configFuture.map(_.url)
+
+  // read the config from config.json file, added from CI of the instantiation repo
+  // TODO default config from resources to deploy even if not instantiated?
+  val config = JSON.parse(BuildInfo.configJson).asInstanceOf[Config]
+  val url = config.url
+
   val http_ = """^https?:\/\/"""
   def transform(url:String,b:js.UndefOr[Boolean]) = if useIsomorphicProxy then s"$proxy/${url.replaceAll(http_, "")}" else s"$proxy?url=${encodeURIComponent(url)}"
   client.rm(dir, RmOptions().setRecursive(true).setForce(true))
