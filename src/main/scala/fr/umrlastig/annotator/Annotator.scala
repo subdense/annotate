@@ -1,4 +1,4 @@
-package subdense
+package fr.umrlastig.annotator
 
 import com.raquo.laminar.api.L.{*, given}
 import com.raquo.laminar.nodes.ReactiveHtmlElement
@@ -21,18 +21,17 @@ import typings.leaflet.mod.PathOptions.MutableBuilder
 import typings.leafletSync.*
 import typings.leafletSync.leafletMod.{Map as SMap, *}
 import typings.turfCentroid.mod.*
-import upickle.default.{read, ReadWriter}
+import upickle.default.{ReadWriter, read}
 
 import scala.annotation.tailrec
 import scala.collection.mutable
-import scala.language.implicitConversions
+import scala.language.{implicitConversions, postfixOps}
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.scalajs.js
 import scala.scalajs.js.JSConverters.*
 import scala.scalajs.js.URIUtils.encodeURIComponent
 import scala.scalajs.js.{JSON, Promise}
-
 import subdense.BuildInfo
 
 val leftRightStyle = PathOptions().setColor("#ff7800").setWeight(5).setOpacity(0.25).setDashArray("20 20").setDashOffset("10").setFill(false)
@@ -67,10 +66,9 @@ class Dataset extends js.Object {
 }
 class Annotation extends js.Object {
   var username: String = _
-  var link: String = _
+  var types: js.Array[String] = _
   var quality: Boolean = _
   var comment: String = _
-  var change: String = _
 }
 
 class Task extends js.Object {
@@ -93,12 +91,9 @@ class Task_ extends js.Object {
   var wmts: js.Array[String] = _
   var sample: String = _
   var task: Task = _
+  var modalities: js.Array[js.Array[String]] = _
 }
 
-/**
- * App configuration
- * @param url url of git repo for data ("instantation" of the app)
- */
 class Config extends js.Object {
   var url: String = _
   var dir: String = _
@@ -106,7 +101,7 @@ class Config extends js.Object {
   var useIsomorphicProxy: Boolean = _
   var corsProxyIsomorphic: String = _
   var corsProxyDefault: String = _
-  var annotationSetup: js.Array[js.Array[String]] = _
+  var annotationSetup: js.Object = _ //{datasetname : js.Array[js.Array[String]], ...}
 }
 
 // read the config from config.json file, added from CI of the instantiation repo
@@ -152,7 +147,8 @@ def cloneData(token: String): Promise[js.Array[Task_]] =
       Promise.all(content.asInstanceOf[DatasetList].datasets.map(datasetName => read[Dataset](s"$dir/$datasetName").`then`(d => (datasetName, d)))))
     .`then`(datasets=>
         Promise.all(datasets.asInstanceOf[js.Array[(String, Dataset)]].flatMap((datasetName, dataset) =>
-          dataset.samples.map(sample => read[Sample](s"$dir/$sample").`then`(s => js.Dynamic.literal(name = datasetName, dates = dataset.dates, wmts = dataset.wmts, sampleFile = sample, sample = s))))))
+          dataset.samples.map(sample => read[Sample](s"$dir/$sample").
+            `then`(s => js.Dynamic.literal(name = datasetName, dates = dataset.dates, wmts = dataset.wmts, sampleFile = sample, sample = s, modalities = annotationSetup.asInstanceOf[js.Dynamic].selectDynamic(datasetName)))))))
     .`then`(samples =>
         //println(s"all sample promises")
         val tasks = samples.asInstanceOf[js.Array[js.Dynamic]].flatMap(s =>
@@ -163,6 +159,7 @@ def cloneData(token: String): Promise[js.Array[Task_]] =
             task.wmts = s.wmts.asInstanceOf[js.Array[String]]
             task.sample = s.sampleFile.asInstanceOf[String]
             task.task = t
+            task.modalities = s.modalities.asInstanceOf[js.Array[js.Array[String]]]
             task
           )
         )
@@ -282,6 +279,7 @@ object Main:
   def renderHome(): Element =
     div(
       h1(Page.Home.name),
+      // TODO load from generic description file (md, html etc.)
       p("This is an annotation app for the SUBDENSE project"),
       div(
         h2("How does this work?"),
@@ -358,8 +356,9 @@ object Main:
           f.properties("task")=task.task.task
           f.properties("sample")=task.sample
           f.properties("annotators")=task.task.annotations.map(_.username)
-          f.properties("linkTypes")=task.task.annotations.map(_.link)
-          f.properties("changeTypes")=task.task.annotations.map(_.change)
+          // TODO adapt with generic types
+          //f.properties("linkTypes")=task.task.annotations.map(_.link)
+          //f.properties("changeTypes")=task.task.annotations.map(_.change)
           f.properties("quality")=task.task.annotations.map(_.quality)
           f.properties("comments")=task.task.annotations.map(_.comment)
         )
@@ -511,17 +510,6 @@ object Main:
   // implicit conversion to leaflet.sync monkey patched version of Map
   implicit def map2sync(jq: Map_): SMap = jq.asInstanceOf[SMap]
 
-  private def linkButton(name: String): Element =
-    button(name,typ("button"),
-      backgroundColor <-- annotationState.signal.map(_.linkType).map(link=>if link == name then "Silver" else "WhiteSmoke"),
-      onClick --> { _ => annotationState.update(_.copy(linkType = name, step=1)); println(s"linkType: ${annotationState.now().linkType}") }
-    )
-  private def changeButton(name: String): Element =
-    button(name,typ("button"),
-      backgroundColor <-- annotationState.signal.map(_.changeType).map(change=>if change == name then "Silver" else "WhiteSmoke"),
-      onClick --> { _ => annotationState.update(_.copy(changeType = name)); ; println(s"changeType: ${annotationState.now().changeType}") }
-    )
-
   def map(name: String, left: Boolean): Map_ =
     println("create map")
     L.map(name, MapOptions().setAttributionControl(!left).setZoomControl(left)).setView(LatLngLiteral(48.8, 2.3), zoom = 18)
@@ -557,6 +545,41 @@ object Main:
   ).addTo(m)
   */
 
+  /*
+  private def linkButton(name: String): Element =
+    button(name,typ("button"),
+      backgroundColor <-- annotationState.signal.map(_.linkType).map(link=>if link == name then "Silver" else "WhiteSmoke"),
+      onClick --> { _ => annotationState.update(_.copy(linkType = name, step=1)); println(s"linkType: ${annotationState.now().linkType}") }
+    )
+  private def changeButton(name: String): Element =
+    button(name,typ("button"),
+      backgroundColor <-- annotationState.signal.map(_.changeType).map(change=>if change == name then "Silver" else "WhiteSmoke"),
+      onClick --> { _ => annotationState.update(_.copy(changeType = name)); ; println(s"changeType: ${annotationState.now().changeType}") }
+    )
+   */
+  private def typeElement(name: String, index: Int): Element =
+  // TODO add special cases for label, boolean input and text input (quality issue, comment)
+    button(name,typ("button"),
+      backgroundColor <-- annotationState.signal.map(_.types(index)).map(t=>if t == name then "Silver" else "WhiteSmoke"),
+      onClick --> { _ => annotationState.update(_.copy(types = annotationState.now().types.updated(index, name), step=index)); println(s"types: ${annotationState.now().types}") }
+    )
+
+  // TODO index is always < max size by use but not secure
+  private def nextButton(index: Int): Element =
+    button(">",backgroundColor := "Orchid",
+      disabled <-- annotationState.signal.map(_.types(index)).map(_.isEmpty),
+      onClick --> { _ => annotationState.update(_.copy(step=index+1)) }
+    )
+
+  // TODO index is always >= 1 by use of the function but this is not secure without a check
+  private def backButton(index: Int): Element = button("<",backgroundColor := "Orchid",onClick --> { _ => annotationState.update(_.copy(step=index-1)) })
+
+  private def saveButton: Element = button("save",
+    backgroundColor := "Crimson",
+    disabled <-- annotationState.signal.map(_.types.isEmpty),
+    onClick --> saveAnnotation
+  )
+
   def renderAnnotate(): Element =
     div(
       // Wait for the component to be mounted before adding the leaflet and syncs
@@ -575,83 +598,85 @@ object Main:
         )
       ),
       div(cls("toolbar"),
+        /*
         children(
-
-          /*
           linkButton("1-1"),linkButton("0-1"),linkButton("1-0"),linkButton("1-m"),linkButton("n-1"),linkButton("n-m"),linkButton("other"),
-          button(">",
-            backgroundColor := "Orchid",
-            disabled <-- annotationState.signal.map(_.linkType).map(_.isEmpty),
-            onClick --> { _ => annotationState.update(_.copy(step=1)) }
-          )*/
-          // TODO
-
+          button(">",backgroundColor := "Orchid",disabled <-- annotationState.signal.map(_.linkType).map(_.isEmpty),onClick --> { _ => annotationState.update(_.copy(step=1)) })
         ) <-- annotationState.signal.map(_.step==0),
         children(
-          button("<",
-            backgroundColor := "Orchid",
-            onClick --> { _ => annotationState.update(_.copy(step=0)) }
-          ),
+          button("<",backgroundColor := "Orchid",onClick --> { _ => annotationState.update(_.copy(step=0)) }),
           changeButton("no change"),changeButton("construction"),changeButton("destruction"),changeButton("reconstruction"),changeButton("IDK"),
-          label("Quality issue: "),input("Quality issue",`type`:="checkbox",
-            checked <-- annotationState.signal.map(_.quality),
+          label("Quality issue: "),input("Quality issue",`type`:="checkbox",checked <-- annotationState.signal.map(_.quality),
             inContext( thisNode => onClick --> { _=> annotationState.update(_.copy(quality = thisNode.ref.checked)) } )
           ),
           input("Comment",placeholder := "Any comment?",value <-- annotationState.signal.map(_.comment),
             onInput.mapToValue --> annotationState.updater[String]((state,commentValue)=>state.copy(comment=commentValue))),
           button("save",
             backgroundColor := "Crimson",
-            disabled <-- annotationState.signal.map(_.changeType == ""),
-            onClick --> { _ =>
-              val currentAnnotationState = annotationState.now()
-              val currentTaskState = taskState.now()
-              val currentUserState = stateVar.now()
-              println(s"save: annotationState: $currentAnnotationState")
-              //println(s"save: annotationState: link: ${currentAnnotationState.linkType} ; change: ${currentAnnotationState.changeType}")
-              val sampleFile = currentTaskState.sampleFile
-              val taskFile = currentTaskState.taskFile
-              read[Sample](s"$dir/$sampleFile").`then`(content =>
-                //println(s"read $sampleFile:\n${JSON.stringify(content, space=2)}")
-                val task = content.tasks.find(_.task == taskFile).get
-                val annotation = Annotation()
-                annotation.username = currentUserState.username
-                annotation.link = currentAnnotationState.linkType
-                annotation.change = currentAnnotationState.changeType
-                annotation.quality = currentAnnotationState.quality
-                annotation.comment = currentAnnotationState.comment
-                //println(s"annotation: link: ${annotation.link} ; change: ${annotation.change}")
-                //println(s"annotationState: link: ${currentAnnotationState.linkType} ; change: ${currentAnnotationState.changeType}")
-                task.annotations.push(annotation)
-                //println(s"now\n${JSON.stringify(content, space=2)}")
-                write(s"$dir/$sampleFile",JSON.stringify(content, space=2))
-                gitPush(currentUserState.username, currentUserState.token, sampleFile, s"Update $taskFile for ${annotation.username}")
-                datasetsVar.update(datasets=>datasets.map(_.map(t=>if t.task.task == taskFile
-                then
-                  val newTask = Task_()
-                  newTask.dataset = t.dataset
-                  newTask.dates = t.dates
-                  newTask.wmts = t.wmts
-                  newTask.sample = t.sample
-                  newTask.task = Task()
-                  newTask.task.task = taskFile
-                  newTask.task.annotations = task.annotations
-                  newTask
-                else t)))
-              )
-              nextFeature().`then`(updated=>
-                if updated then
-                  mapLeft.zip(mapRight).foreach((l,r)=>updateMaps(l,r,geoJSON.now().get._1,geoJSON.now().get._2))
-                  currentPage.update(_ => Page.Annotate)
-                else
-                  annotationFinished.update(_=>true)
-                  currentPage.update(_ => Page.Dashboard)
-              )
-            }
+            disabled <-- annotationState.signal.map(_.types.isEmpty),
+            onClick --> saveAnnotation
           )
         ) <-- annotationState.signal.map(_.step==1)
+        */
+
+        // generic scheme : children( prev button if not first, [... typeButtons], next button if not last, save button if last) <-- annotationState.signal.map(_.step== INDEX )
+        taskState.now().modalities.zipWithIndex.map{ case (s,i) =>
+          val n = taskState.now().modalities.length
+          val elements = (if (i>0) Seq(backButton(i)) else Seq.empty)++s.map(typeElement(_, i))++(if (i<(n-1)) Seq(nextButton(i)) else Seq.empty)++(if (i==(n-1)) Seq(saveButton) else Seq.empty)
+          children(elements)  <-- annotationState.signal.map(_.step==i)
+        }
       )
     )
   end renderAnnotate
+
+  private def saveAnnotation(event: dom.MouseEvent): Unit = {
+    val currentAnnotationState = annotationState.now()
+    val currentTaskState = taskState.now()
+    val currentUserState = stateVar.now()
+    println(s"save: annotationState: $currentAnnotationState")
+    //println(s"save: annotationState: link: ${currentAnnotationState.linkType} ; change: ${currentAnnotationState.changeType}")
+    val sampleFile = currentTaskState.sampleFile
+    val taskFile = currentTaskState.taskFile
+    read[Sample](s"$dir/$sampleFile").`then`(content =>
+      //println(s"read $sampleFile:\n${JSON.stringify(content, space=2)}")
+      val task = content.tasks.find(_.task == taskFile).get
+      val annotation = Annotation()
+      annotation.username = currentUserState.username
+      //annotation.link = currentAnnotationState.linkType
+      //annotation.change = currentAnnotationState.changeType
+      annotation.types = currentAnnotationState.types.toArray.asInstanceOf[js.Array[String]]
+      annotation.quality = currentAnnotationState.quality
+      annotation.comment = currentAnnotationState.comment
+      //println(s"annotation: link: ${annotation.link} ; change: ${annotation.change}")
+      //println(s"annotationState: link: ${currentAnnotationState.linkType} ; change: ${currentAnnotationState.changeType}")
+      task.annotations.push(annotation)
+      //println(s"now\n${JSON.stringify(content, space=2)}")
+      write(s"$dir/$sampleFile", JSON.stringify(content, space = 2))
+      gitPush(currentUserState.username, currentUserState.token, sampleFile, s"Update $taskFile for ${annotation.username}")
+      datasetsVar.update(datasets => datasets.map(_.map {
+      t =>
+        if (t.task.task == taskFile) {
+          val newTask = Task_()
+          newTask.dataset = t.dataset
+          newTask.dates = t.dates
+          newTask.wmts = t.wmts
+          newTask.sample = t.sample
+          newTask.task = Task()
+          newTask.task.task = taskFile
+          newTask.task.annotations = task.annotations
+          newTask
+        } else t
+    }))
+    )
+    nextFeature().`then`(updated =>
+      if updated then
+        mapLeft.zip(mapRight).foreach((l, r) => updateMaps(l, r, geoJSON.now().get._1, geoJSON.now().get._2))
+          currentPage.update(_ => Page.Annotate)
+      else
+        annotationFinished.update(_ => true)
+          currentPage.update(_ => Page.Dashboard)
+    )
+  }
 
   private def renderInputRow(error: UserState => Option[String])(mods: Modifier[HtmlElement]*): HtmlElement = {
     val errorSignal = stateVar.signal.map(_.displayError(error))
@@ -738,7 +763,7 @@ enum Page(val name: String):
 final class Model {
   val currentPage: Var[Page] = Var(Page.Home)
   val geoJSON: Var[Option[(GeoJSON__[Geometry, GeoJsonProperties], GeoJSON__[Geometry, GeoJsonProperties])]] = Var(None)
-  case class TaskState(date1: String="", date2: String="", wms1: String="", wms2: String="", sampleFile: String="", taskFile:String="")
+  case class TaskState(date1: String="", date2: String="", wms1: String="", wms2: String="", sampleFile: String="", taskFile:String="", modalities: Seq[Seq[String]] = Seq.empty)
   val taskState: Var[TaskState] = Var(TaskState())
   val datasetsVar: Var[Option[js.Array[Task_]]] = Var(None)
   private var iterator: Option[Iterator[Task_]] = None
@@ -750,7 +775,7 @@ final class Model {
   var globalMapRight: Option[Map_] = None
   val annotationFinished: Var[Boolean] = Var(false)
   //case class AnnotationState(linkType: String = "", changeType: String = "", quality: Boolean = false, comment: String = "", step: Int = 0)
-  case class AnnotationState(types: Seq[String] = Seq.fill(annotationSetup.length)(""), step: Int = 0)
+  case class AnnotationState(types: Seq[String] = Seq.empty[String], quality: Boolean = false, comment: String = "", step: Int = 0)
   val annotationState: Var[AnnotationState] = Var(AnnotationState())
   val datasetSelected: Var[String] = Var("")
 

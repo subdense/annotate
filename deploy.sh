@@ -1,5 +1,5 @@
 COMMIT=`git rev-parse --short HEAD`
-sbt fullOptJS
+sbt fullLinkJS
 npm run build
 git checkout gh-pages
 rm -rf assets
