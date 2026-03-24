@@ -55,14 +55,6 @@ def hsl2rgb (h: Double, s: Double, l:Double) =
 
 def getColor = toHexString(hsl2rgb(rnd.nextDouble()*360,0.8,0.5))
 
-/**
- * App configuration
- * @param url url of git repo for data ("instantation" of the app)
- */
-class Config extends js.Object {
-  var url: String = _
-}
-
 
 class DatasetList extends js.Object {
   var datasets: js.Array[String] = _
@@ -103,8 +95,33 @@ class Task_ extends js.Object {
   var task: Task = _
 }
 
-val client = IndexedDbFsClient("my-repos")
-val dir = "/datasets"
+/**
+ * App configuration
+ * @param url url of git repo for data ("instantation" of the app)
+ */
+class Config extends js.Object {
+  var url: String = _
+  var dir: String = _
+  var fsname: String = _
+  var useIsomorphicProxy: Boolean = _
+  var corsProxyIsomorphic: String = _
+  var corsProxyDefault: String = _
+  var annotationSetup: js.Array[js.Array[String]] = _
+}
+
+// read the config from config.json file, added from CI of the instantiation repo
+// TODO default config from resources to deploy even if not instantiated?
+val config = JSON.parse(BuildInfo.configJson).asInstanceOf[Config]
+
+val url = config.url
+val dir = config.dir
+val fsname = config.fsname
+val useIsomorphicProxy = config.useIsomorphicProxy
+val corsProxyIsomorphic = config.corsProxyIsomorphic
+val corsProxyDefault = config.corsProxyDefault
+val annotationSetup = config.annotationSetup
+
+val client = IndexedDbFsClient(fsname)
 
 def read[T](file: String, parse: Boolean = true): Promise[T] = client.readFile(file, EncodingOptions().setEncoding(utf8))
   .`then`(content => (if parse then JSON.parse(content.asInstanceOf[String]) else content).asInstanceOf[T])
@@ -112,14 +129,8 @@ def read[T](file: String, parse: Boolean = true): Promise[T] = client.readFile(f
 def write(file: String, content: String): Promise[Unit] = client.writeFile(file, content, EncodingOptions().setEncoding(utf8))
 
 def cloneData(token: String): Promise[js.Array[Task_]] =
-  // TODO add proxy option and cors urls in config
-  val useIsomorphicProxy = true
-  val proxy = if useIsomorphicProxy then "https://cors.isomorphic-git.org" else "https://gitcorsproxy.vercel.app/api/cors"
 
-  // read the config from config.json file, added from CI of the instantiation repo
-  // TODO default config from resources to deploy even if not instantiated?
-  val config = JSON.parse(BuildInfo.configJson).asInstanceOf[Config]
-  val url = config.url
+  val proxy = if useIsomorphicProxy then corsProxyIsomorphic else corsProxyDefault
 
   val http_ = """^https?:\/\/"""
   def transform(url:String,b:js.UndefOr[Boolean]) = if useIsomorphicProxy then s"$proxy/${url.replaceAll(http_, "")}" else s"$proxy?url=${encodeURIComponent(url)}"
@@ -161,8 +172,7 @@ def cloneData(token: String): Promise[js.Array[Task_]] =
 
 def gitPush(username: String, token: String, file: String, message: String): Promise[PushResult] =
   val useIsomorphicProxy = true
-  val proxy = if useIsomorphicProxy then "https://cors.isomorphic-git.org" else "https://gitcorsproxy.vercel.app/api/cors"
-  val url = "https://github.com/subdense/private_datasets.git"
+  val proxy = if useIsomorphicProxy  then corsProxyIsomorphic else corsProxyDefault
   val http_ = """^https?:\/\/"""
   def transform(url: String, b: js.UndefOr[Boolean]) = if useIsomorphicProxy then s"$proxy/${url.replaceAll(http_, "")}" else s"$proxy?url=${encodeURIComponent(url)}"
   println(s"start add $file with ${transform(url, js.undefined)}")
@@ -539,6 +549,7 @@ object Main:
         WMSOptions().setMinZoom(0).setMaxZoom(20).setMaxNativeZoom(18).setAttribution(baseUrl).setLayers(layers.mkString(","))
       ).addTo(map)
 
+  // TODO add option to have switch between multiple WMS
   /*
   tileLayer(
     "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -565,12 +576,16 @@ object Main:
       ),
       div(cls("toolbar"),
         children(
+
+          /*
           linkButton("1-1"),linkButton("0-1"),linkButton("1-0"),linkButton("1-m"),linkButton("n-1"),linkButton("n-m"),linkButton("other"),
           button(">",
             backgroundColor := "Orchid",
             disabled <-- annotationState.signal.map(_.linkType).map(_.isEmpty),
             onClick --> { _ => annotationState.update(_.copy(step=1)) }
-          )
+          )*/
+          // TODO
+
         ) <-- annotationState.signal.map(_.step==0),
         children(
           button("<",
@@ -734,7 +749,8 @@ final class Model {
   var globalMapRightControl: Option[Control_.Layers] = None
   var globalMapRight: Option[Map_] = None
   val annotationFinished: Var[Boolean] = Var(false)
-  case class AnnotationState(linkType: String = "", changeType: String = "", quality: Boolean = false, comment: String = "", step: Int = 0)
+  //case class AnnotationState(linkType: String = "", changeType: String = "", quality: Boolean = false, comment: String = "", step: Int = 0)
+  case class AnnotationState(types: Seq[String] = Seq.fill(annotationSetup.length)(""), step: Int = 0)
   val annotationState: Var[AnnotationState] = Var(AnnotationState())
   val datasetSelected: Var[String] = Var("")
 
