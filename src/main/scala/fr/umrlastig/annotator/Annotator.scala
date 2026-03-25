@@ -148,10 +148,20 @@ def cloneData(token: String): Promise[js.Array[Task_]] =
     .`then`(datasets=>
         Promise.all(datasets.asInstanceOf[js.Array[(String, Dataset)]].flatMap((datasetName, dataset) =>
           dataset.samples.map(sample => read[Sample](s"$dir/$sample").
-            `then`(s => js.Dynamic.literal(name = datasetName, dates = dataset.dates, wmts = dataset.wmts, sampleFile = sample, sample = s, modalities = annotationSetup.asInstanceOf[js.Dynamic].selectDynamic(datasetName)))))))
+            `then`(s =>
+              println(s"Annotation setup from static config : ${js.Object.keys(annotationSetup).toSeq}")
+              println(s"Config for dataset ${datasetName} : ${annotationSetup.asInstanceOf[js.Dynamic].selectDynamic(datasetName).asInstanceOf[js.Array[js.Array[String]]]}")
+              js.Dynamic.literal(name = datasetName, dates = dataset.dates, wmts = dataset.wmts, sampleFile = sample, sample = s,
+                modalities = annotationSetup.asInstanceOf[js.Dynamic].selectDynamic(datasetName))
+            )
+          )
+        ))
+    )
     .`then`(samples =>
         //println(s"all sample promises")
         val tasks = samples.asInstanceOf[js.Array[js.Dynamic]].flatMap(s =>
+          val modalities = s.modalities.asInstanceOf[js.Array[js.Array[String]]]
+          println(s"Setting up sample with modalities : ${modalities} ; dims : ${modalities.toSeq.size} x ${modalities(0).toSeq.size}")
           s.sample.asInstanceOf[Sample].tasks.map(t =>
             val task = Task_()
             task.dataset = s.name.asInstanceOf[String]
@@ -581,6 +591,14 @@ object Main:
   )
 
   def renderAnnotate(): Element =
+    // generic scheme : children( prev button if not first, [... typeButtons], next button if not last, save button if last) <-- annotationState.signal.map(_.step== INDEX )
+    val modalities = taskState.now().modalities
+    println(s"Modalities for task : ${modalities}")
+    val toolbar = modalities.zipWithIndex.map{ case (s,i) =>
+        val elements = (if (i>0) Seq(backButton(i)) else Seq.empty)++s.map(typeElement(_, i))++(if (i<(modalities.length-1)) Seq(nextButton(i)) else Seq.empty)++(if (i==(modalities.length-1)) Seq(saveButton) else Seq.empty)
+        children(elements)  <-- annotationState.signal.map(_.step==i)
+      }
+
     div(
       // Wait for the component to be mounted before adding the leaflet and syncs
       onMountCallback(ctx =>
@@ -597,35 +615,7 @@ object Main:
         div(idAttr("mapRight"), cls("mapRight"), cls("map"),
         )
       ),
-      div(cls("toolbar"),
-        /*
-        children(
-          linkButton("1-1"),linkButton("0-1"),linkButton("1-0"),linkButton("1-m"),linkButton("n-1"),linkButton("n-m"),linkButton("other"),
-          button(">",backgroundColor := "Orchid",disabled <-- annotationState.signal.map(_.linkType).map(_.isEmpty),onClick --> { _ => annotationState.update(_.copy(step=1)) })
-        ) <-- annotationState.signal.map(_.step==0),
-        children(
-          button("<",backgroundColor := "Orchid",onClick --> { _ => annotationState.update(_.copy(step=0)) }),
-          changeButton("no change"),changeButton("construction"),changeButton("destruction"),changeButton("reconstruction"),changeButton("IDK"),
-          label("Quality issue: "),input("Quality issue",`type`:="checkbox",checked <-- annotationState.signal.map(_.quality),
-            inContext( thisNode => onClick --> { _=> annotationState.update(_.copy(quality = thisNode.ref.checked)) } )
-          ),
-          input("Comment",placeholder := "Any comment?",value <-- annotationState.signal.map(_.comment),
-            onInput.mapToValue --> annotationState.updater[String]((state,commentValue)=>state.copy(comment=commentValue))),
-          button("save",
-            backgroundColor := "Crimson",
-            disabled <-- annotationState.signal.map(_.types.isEmpty),
-            onClick --> saveAnnotation
-          )
-        ) <-- annotationState.signal.map(_.step==1)
-        */
-
-        // generic scheme : children( prev button if not first, [... typeButtons], next button if not last, save button if last) <-- annotationState.signal.map(_.step== INDEX )
-        taskState.now().modalities.zipWithIndex.map{ case (s,i) =>
-          val n = taskState.now().modalities.length
-          val elements = (if (i>0) Seq(backButton(i)) else Seq.empty)++s.map(typeElement(_, i))++(if (i<(n-1)) Seq(nextButton(i)) else Seq.empty)++(if (i==(n-1)) Seq(saveButton) else Seq.empty)
-          children(elements)  <-- annotationState.signal.map(_.step==i)
-        }
-      )
+      div(cls("toolbar")).amend(toolbar: _*)
     )
   end renderAnnotate
 
