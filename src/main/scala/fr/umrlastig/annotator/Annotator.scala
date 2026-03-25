@@ -98,7 +98,7 @@ class Config extends js.Object {
   var url: String = _
   var dir: String = _
   var fsname: String = _
-  var useIsomorphicProxy: Boolean = _
+  var useIsomorphicProxy: String = _
   var corsProxyIsomorphic: String = _
   var corsProxyDefault: String = _
   var annotationSetup: js.Object = _ //{datasetname : js.Array[js.Array[String]], ...}
@@ -111,7 +111,7 @@ val config = JSON.parse(BuildInfo.configJson).asInstanceOf[Config]
 val url = config.url
 val dir = config.dir
 val fsname = config.fsname
-val useIsomorphicProxy = config.useIsomorphicProxy
+val useIsomorphicProxy = config.useIsomorphicProxy.toBoolean
 val corsProxyIsomorphic = config.corsProxyIsomorphic
 val corsProxyDefault = config.corsProxyDefault
 val annotationSetup = config.annotationSetup
