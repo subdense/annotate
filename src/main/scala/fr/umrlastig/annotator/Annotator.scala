@@ -169,7 +169,7 @@ def cloneData(token: String): Promise[js.Array[Task_]] =
             task.wmts = s.wmts.asInstanceOf[js.Array[String]]
             task.sample = s.sampleFile.asInstanceOf[String]
             task.task = t
-            task.modalities = s.modalities.asInstanceOf[js.Array[js.Array[String]]]
+            task.modalities = modalities
             task
           )
         )
@@ -595,8 +595,10 @@ object Main:
     val modalities = taskState.now().modalities
     println(s"Modalities for task : ${modalities}")
     val toolbar = modalities.zipWithIndex.map{ case (s,i) =>
-        val elements = (if (i>0) Seq(backButton(i)) else Seq.empty)++s.map(typeElement(_, i))++(if (i<(modalities.length-1)) Seq(nextButton(i)) else Seq.empty)++(if (i==(modalities.length-1)) Seq(saveButton) else Seq.empty)
-        children(elements)  <-- annotationState.signal.map(_.step==i)
+        val elements = if (modalities.length==1) {s.map(typeElement(_, i))++Seq(saveButton)} else {
+          (if (i>0) Seq(backButton(i)) else Seq.empty)++s.map(typeElement(_, i))++(if (i<(modalities.length-1)) Seq(nextButton(i)) else Seq.empty)++(if (i==(modalities.length-1)) Seq(saveButton) else Seq.empty)
+        }
+      children(elements)  <-- annotationState.signal.map(_.step==i)
       }
 
     div(
@@ -607,6 +609,7 @@ object Main:
         mapRight = Some(r)
         l.sync(r, SyncMapOptions())
         r.sync(l, SyncMapOptions())
+        //println(s"Modalities after mount : ${taskState.now().modalities}")
         updateMaps(l,r,geoJSON.now().get._1,geoJSON.now().get._2,Some(taskState.now().wms1),Some(taskState.now().wms2))
       ),
       div(idAttr("my-container"), cls("my-container"),
@@ -651,6 +654,7 @@ object Main:
           newTask.dates = t.dates
           newTask.wmts = t.wmts
           newTask.sample = t.sample
+          newTask.modalities = t.modalities
           newTask.task = Task()
           newTask.task.task = taskFile
           newTask.task.annotations = task.annotations
@@ -821,7 +825,8 @@ final class Model {
         taskState.update(state => state.copy(
           date1 = currentTask_.dates(0),date2=currentTask_.dates(1),
           wms1=currentTask_.wmts(0), wms2=currentTask_.wmts(1),
-          sampleFile = currentTask_.sample, taskFile=currentTask_.task.task
+          sampleFile = currentTask_.sample, taskFile=currentTask_.task.task,
+          modalities = currentTask_.modalities.map(_.toSeq).toSeq
         ))
         annotationState.update(_=>AnnotationState())
         read[String](s"$dir/${currentTask_.task.task}", false).`then`(content =>
