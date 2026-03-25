@@ -555,23 +555,17 @@ object Main:
   ).addTo(m)
   */
 
-  /*
-  private def linkButton(name: String): Element =
-    button(name,typ("button"),
-      backgroundColor <-- annotationState.signal.map(_.linkType).map(link=>if link == name then "Silver" else "WhiteSmoke"),
-      onClick --> { _ => annotationState.update(_.copy(linkType = name, step=1)); println(s"linkType: ${annotationState.now().linkType}") }
-    )
-  private def changeButton(name: String): Element =
-    button(name,typ("button"),
-      backgroundColor <-- annotationState.signal.map(_.changeType).map(change=>if change == name then "Silver" else "WhiteSmoke"),
-      onClick --> { _ => annotationState.update(_.copy(changeType = name)); ; println(s"changeType: ${annotationState.now().changeType}") }
-    )
-   */
-  private def typeElement(name: String, index: Int): Element =
+  private def typeElement(name: String, index: Int, n: Int): Element =
   // TODO add special cases for label, boolean input and text input (quality issue, comment)
     button(name,typ("button"),
-      backgroundColor <-- annotationState.signal.map(_.types(index)).map(t=>if t == name then "Silver" else "WhiteSmoke"),
-      onClick --> { _ => annotationState.update(_.copy(types = annotationState.now().types.updated(index, name), step=index)); println(s"types: ${annotationState.now().types}") }
+      backgroundColor <-- annotationState.signal.map{s => if (s.types.isEmpty) "" else s.types(index)}.map(t=>if t == name then "Silver" else "WhiteSmoke"),
+      onClick --> { _ => annotationState.update(_.copy(
+        types = {val prevTypes = annotationState.now().types
+          if (prevTypes.isEmpty) Seq.fill(n)("").updated(index, name)
+          else prevTypes.updated(index, name)},
+        step=index))
+        println(s"types: ${annotationState.now().types}")
+      }
     )
 
   // TODO index is always < max size by use but not secure
@@ -595,10 +589,11 @@ object Main:
     val modalities = taskState.now().modalities
     println(s"Modalities for task : ${modalities}")
     val toolbar = modalities.zipWithIndex.map{ case (s,i) =>
-        val elements = if (modalities.length==1) {s.map(typeElement(_, i))++Seq(saveButton)} else {
-          (if (i>0) Seq(backButton(i)) else Seq.empty)++s.map(typeElement(_, i))++(if (i<(modalities.length-1)) Seq(nextButton(i)) else Seq.empty)++(if (i==(modalities.length-1)) Seq(saveButton) else Seq.empty)
+        val n = modalities.length
+        val elements = if (n==1) {s.map(typeElement(_, i, n))++Seq(saveButton)} else {
+          (if (i>0) Seq(backButton(i)) else Seq.empty)++s.map(typeElement(_, i, n))++(if (i<(n-1)) Seq(nextButton(i)) else Seq.empty)++(if (i==(n-1)) Seq(saveButton) else Seq.empty)
         }
-      children(elements)  <-- annotationState.signal.map(_.step==i)
+        children(elements)  <-- annotationState.signal.map(_.step==i)
       }
 
     div(
