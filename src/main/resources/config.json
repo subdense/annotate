@@ -1,5 +1,6 @@
 {
   "url": "https://github.com/umrlastig/annotation-example.git",
+  "base": "/annotation-example/",
   "dir": "/datasets",
   "fsname": "annotator-data",
   "useIsomorphicProxy": "true",
