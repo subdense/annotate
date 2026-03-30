@@ -123,6 +123,7 @@ def read[T](file: String, parse: Boolean = true): Promise[T] = client.readFile(f
 
 def write(file: String, content: String): Promise[Unit] = client.writeFile(file, content, EncodingOptions().setEncoding(utf8))
 
+// TODO add branch option? (always work on default branch when cloning, an other config may be useful?)
 def cloneData(token: String): Promise[js.Array[Task_]] =
 
   val proxy = if useIsomorphicProxy then corsProxyIsomorphic else corsProxyDefault
@@ -632,7 +633,7 @@ object Main:
       annotation.username = currentUserState.username
       //annotation.link = currentAnnotationState.linkType
       //annotation.change = currentAnnotationState.changeType
-      annotation.types = currentAnnotationState.types.toArray.asInstanceOf[js.Array[String]]
+      annotation.types = currentAnnotationState.types.toJSArray
       annotation.quality = currentAnnotationState.quality
       annotation.comment = currentAnnotationState.comment
       //println(s"annotation: link: ${annotation.link} ; change: ${annotation.change}")
