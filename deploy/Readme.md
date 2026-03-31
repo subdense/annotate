@@ -6,7 +6,7 @@ For direct deployment on github pages by pushing the js build to a gh-pages bran
 `deploy-test.sh` for testing only: use default `config.json` in `src/main/resources` (data repo for test: https://github.com/umrlastig/annotation-example.git)
 
 `deploy-on-data-repo.sh` :
-  - copy this script and the config file (if not there already) to the root of a deployment repository (that can be also the data repository, such as annotation-example)
+  - copy this script and the config file (if not there already) to the root of a deployment repository (that can be also the data repository, such as annotation-example); in case your data can not be public and your organisation has not a pro github subscription, you need a separate private data repository and public deploy repository
   - edit the config as needed:
     * 'url' must link to the data repo
     * 'base' must be the deployment repo name
