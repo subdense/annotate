@@ -12,6 +12,6 @@ For direct deployment on github pages by pushing the js build to a gh-pages bran
     * 'base' must be the deployment repo name
     * 'annotationSetup' for each dataset (identified by its path in datasets.json), double array of annotation tags for each annotation step (example: [[tag1-step1,tag2-step1,tag3-step1],[tag1-step2,tag2-step2]])
   - make sure a gh-pages branch exists
-  - .gitignore with `tmp` dir ignored
+  - .gitignore with `tmp` dir ignored in both main and gh-pages branch
   - run the script: this builds the app and pushes it to the gh-pages branch; the deployed app is then available at https://$ORGANISATION.github.io/$REPOSITORY
 
