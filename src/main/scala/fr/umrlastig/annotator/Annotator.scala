@@ -535,12 +535,17 @@ object Main:
     tmpLayers.foreach(map.removeLayer)
     val split = wmts.split('?')
     val baseUrl = split.head
-    val layers = split(1).split(',')
-    println(s"addTileLayer with url $baseUrl and layers = ${layers.mkString(",")}")
+    // can not always use WMTS default param : need to parse additional parameters provided in the wmts url
+    // TODO for now use convention URL/wmts?layer1,layer2,...&PARAM1=...&... which is not the correct call with "LAYER="
+    val layers = split(1).split('&')(0).split(',')
+    val params = split(1).split('&').tail.map(s => {val kv = s.split('='); (kv(0),kv(1))}).toMap
+    val wmtsParams: Map[String,String] = defaultWMTS.keys.map(k => if(params.contains(k)) (k,params(k)) else (k,defaultWMTS(k))).toMap
+    println(s"addTileLayer with url $baseUrl, layers = ${layers.mkString(",")} and parameters ${params.mkString(",")}")
     if baseUrl.contains("wmts") then
       for (layer <- layers) {
-        tileLayer(makeWMTS(baseUrl,defaultWMTS+("LAYER"->layer)),
-          TileLayerOptions().setMinZoom(0).setMaxZoom(20).setMaxNativeZoom(18).setAttribution("IGN-F/Geoportail").setTileSize(256)
+        tileLayer(makeWMTS(baseUrl,Map("LAYER"->layer)++wmtsParams),
+          // TODO add attribution somewhere in params ? .setAttribution("IGN-F/Geoportail")
+          TileLayerOptions().setMinZoom(0).setMaxZoom(20).setMaxNativeZoom(18).setAttribution("").setTileSize(256)
         ).addTo(map)
       }
     else
