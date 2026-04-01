@@ -3,7 +3,8 @@ package fr.umrlastig.annotator
 import com.raquo.laminar.api.L.{*, given}
 import com.raquo.laminar.nodes.ReactiveHtmlElement
 import org.scalajs.dom
-import org.scalajs.dom.{HTMLDivElement, HTMLElement, Response}
+import org.scalajs.dom.{HTMLDivElement, HTMLElement}
+import subdense.BuildInfo
 import typings.geojson.mod.*
 import typings.gitEssentials.clientsFsIndexedDbFsClientMod.IndexedDbFsClient
 import typings.gitEssentials.clientsHttpWebHttpClientMod.makeWebHttpClient
@@ -21,18 +22,14 @@ import typings.leaflet.mod.PathOptions.MutableBuilder
 import typings.leafletSync.*
 import typings.leafletSync.leafletMod.{Map as SMap, *}
 import typings.turfCentroid.mod.*
-import upickle.default.{ReadWriter, read}
 
 import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.language.{implicitConversions, postfixOps}
-import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.Future
 import scala.scalajs.js
 import scala.scalajs.js.JSConverters.*
 import scala.scalajs.js.URIUtils.encodeURIComponent
 import scala.scalajs.js.{JSON, Promise}
-import subdense.BuildInfo
 
 val leftRightStyle = PathOptions().setColor("#ff7800").setWeight(5).setOpacity(0.25).setDashArray("20 20").setDashOffset("10").setFill(false)
 val leftLeftStyle = PathOptions().setColor("#78ff00").setWeight(2).setOpacity(0.8).setFill(false)
@@ -97,7 +94,7 @@ class Task_ extends js.Object {
 class Config extends js.Object {
   var url: String = _
   var dir: String = _
-  var fsname: String = _
+  var fsName: String = _
   var useIsomorphicProxy: String = _
   var corsProxyIsomorphic: String = _
   var corsProxyDefault: String = _
@@ -110,13 +107,13 @@ val config = JSON.parse(BuildInfo.configJson).asInstanceOf[Config]
 
 val url = config.url
 val dir = config.dir
-val fsname = config.fsname
+val fsName = config.fsName
 val useIsomorphicProxy = config.useIsomorphicProxy.toBoolean
 val corsProxyIsomorphic = config.corsProxyIsomorphic
 val corsProxyDefault = config.corsProxyDefault
 val annotationSetup = config.annotationSetup
 
-val client = IndexedDbFsClient(fsname)
+val client = IndexedDbFsClient(fsName)
 
 def read[T](file: String, parse: Boolean = true): Promise[T] = client.readFile(file, EncodingOptions().setEncoding(utf8))
   .`then`(content => (if parse then JSON.parse(content.asInstanceOf[String]) else content).asInstanceOf[T])
@@ -145,13 +142,13 @@ def cloneData(token: String): Promise[js.Array[Task_]] =
       read[DatasetList](s"$dir/datasets.json"))
     .`then`(content=>
       //println(s"done reading $dir/datasets.json")
-      Promise.all(content.asInstanceOf[DatasetList].datasets.map(datasetName => read[Dataset](s"$dir/$datasetName").`then`(d => (datasetName, d)))))
+      Promise.all(content.datasets.map(datasetName => read[Dataset](s"$dir/$datasetName").`then`(d => (datasetName, d)))))
     .`then`(datasets=>
         Promise.all(datasets.asInstanceOf[js.Array[(String, Dataset)]].flatMap((datasetName, dataset) =>
           dataset.samples.map(sample => read[Sample](s"$dir/$sample").
             `then`(s =>
               println(s"Annotation setup from static config : ${js.Object.keys(annotationSetup).toSeq}")
-              println(s"Config for dataset ${datasetName} : ${annotationSetup.asInstanceOf[js.Dynamic].selectDynamic(datasetName).asInstanceOf[js.Array[js.Array[String]]]}")
+              println(s"Config for dataset $datasetName : ${annotationSetup.asInstanceOf[js.Dynamic].selectDynamic(datasetName).asInstanceOf[js.Array[js.Array[String]]]}")
               js.Dynamic.literal(name = datasetName, dates = dataset.dates, wmts = dataset.wmts, sampleFile = sample, sample = s,
                 modalities = annotationSetup.asInstanceOf[js.Dynamic].selectDynamic(datasetName))
             )
@@ -162,7 +159,7 @@ def cloneData(token: String): Promise[js.Array[Task_]] =
         //println(s"all sample promises")
         val tasks = samples.asInstanceOf[js.Array[js.Dynamic]].flatMap(s =>
           val modalities = s.modalities.asInstanceOf[js.Array[js.Array[String]]]
-          println(s"Setting up sample with modalities : ${modalities} ; dims : ${modalities.toSeq.size} x ${modalities(0).toSeq.size}")
+          println(s"Setting up sample with modalities : $modalities ; dims : ${modalities.toSeq.size} x ${modalities(0).toSeq.size}")
           s.sample.asInstanceOf[Sample].tasks.map(t =>
             val task = Task_()
             task.dataset = s.name.asInstanceOf[String]
@@ -210,7 +207,7 @@ def Annotator(): Unit =
 end Annotator
 
 object Main:
-  val model = new Model
+  private val model = new Model
   import model.*
   private def updateMaps(leftMap: Map_, rightMap: Map_,
                          leftGeoJSON: GeoJSON__[Geometry,GeoJsonProperties], rightGeoJSON: GeoJSON__[Geometry,GeoJsonProperties],
@@ -227,7 +224,7 @@ object Main:
   private def asFeatureCollection(text: String): FeatureCollection[Geometry, GeoJsonProperties] =
     JSON.parse(text).asInstanceOf[FeatureCollection[Geometry, GeoJsonProperties]]
 
-  def header(): Element =
+  private def header(): Element =
     navTag(
       menuTag(
         li(
@@ -287,7 +284,7 @@ object Main:
     )
   end appElement
 
-  def renderHome(): Element =
+  private def renderHome(): Element =
     div(
       h1(Page.Home.name),
       // TODO load from generic description file (md, html etc.)
@@ -306,7 +303,7 @@ object Main:
     )
   end renderHome
 
-  def renderDashboard(): Element =
+  private def renderDashboard(): Element =
     case class SampleR(name: String, total: Int, progress:Int)
     case class DatasetR(name:String, samples: List[SampleR])
     def newRenderDataset(dataset: String, init: DatasetR, signal: Signal[DatasetR]): HtmlElement = {
@@ -343,6 +340,7 @@ object Main:
       h1(Page.Dashboard.name),
       h2(s"User: $username"),
       children <-- signal.split(_.name)(newRenderDataset)
+
     )
   end renderDashboard
 
@@ -351,17 +349,17 @@ object Main:
     divIcon(DivIconOptions().setHtml(div(
       b(text),
       background("conic-gradient(" + values.foldLeft((List[String](), 0.0))((acc, tuple) => (acc._1 ++ List(s"${tuple._2} ${acc._2}deg", s"${tuple._2} ${acc._2 + tuple._1 * 360 / sum}deg"), acc._2 + tuple._1 * 360 / sum))._1.mkString(",") + ")"),
-      width(sum*2+"px"),
-      height(sum*2+"px"),
-      borderRadius(sum+"px"),
+      width(s"${sum*2}px"),
+      height(s"${sum*2}px"),
+      borderRadius(s"${sum}px"),
       alignContent("center")
     ).ref).setIconSize(Point_(sum*2,sum*2)))
 
-  def renderGlobalDashboard(): Element =
+  private def renderGlobalDashboard(): Element =
     def taskFeatures(dateLeft: String, dateRight: String)(task: Task_): Promise[(js.Array[Feature[Geometry,GeoJsonProperties]],js.Array[Feature[Geometry,GeoJsonProperties]])] =
       println("taskFile: "+task.task.task)
       read[String](s"$dir/${task.task.task}", false).`then`(content =>
-        val newTask = content.asInstanceOf[String]
+        val newTask = content
         val features = asFeatureCollection(newTask).features
         features.foreach(f=>
           f.properties("task")=task.task.task
@@ -389,7 +387,7 @@ object Main:
                 Promise.all[(js.Array[Feature[Geometry,GeoJsonProperties]],js.Array[Feature[Geometry,GeoJsonProperties]])](
                   array.map(taskFeatures(taskState.now().date1,taskState.now().date2)).toJSArray
                 ).`then`(a=>
-                  val b = a.asInstanceOf[js.Array[(js.Array[Feature[Geometry,GeoJsonProperties]],js.Array[Feature[Geometry,GeoJsonProperties]])]].unzip
+                  val b = a.unzip
                   println(s"Left: ${b._1.flatten.toJSArray.size} - Right: ${b._2.flatten.toJSArray.size}")
                   (d.split("/").head,array.head.wmts(0),array.head.wmts(1),L.GeoJSON__[Geometry,GeoJsonProperties](FeatureCollection(b._1.flatten.toJSArray)),L.GeoJSON__[Geometry,GeoJsonProperties](FeatureCollection(b._2.flatten.toJSArray)))
                 )
@@ -590,10 +588,10 @@ object Main:
     onClick --> saveAnnotation
   )
 
-  def renderAnnotate(): Element =
+  private def renderAnnotate(): Element =
     // generic scheme : children( prev button if not first, [... typeButtons], next button if not last, save button if last) <-- annotationState.signal.map(_.step== INDEX )
     val modalities = taskState.now().modalities
-    println(s"Modalities for task : ${modalities}")
+    println(s"Modalities for task : $modalities")
     val toolbar = modalities.zipWithIndex.map{ case (s,i) =>
         val n = modalities.length
         val elements = if (n==1) {s.map(typeElement(_, i, n))++Seq(saveButton)} else {
@@ -682,7 +680,7 @@ object Main:
       child.maybe <-- errorSignal.map(_.map(err => div(cls("-error"), err)))
     )
   }
-  def renderLogin(): Element =
+  private def renderLogin(): Element =
     div(
       h1(Page.Login.name),
       form(
@@ -831,7 +829,7 @@ final class Model {
         ))
         annotationState.update(_=>AnnotationState())
         read[String](s"$dir/${currentTask_.task.task}", false).`then`(content =>
-          val newTask = content.asInstanceOf[String]
+          val newTask = content
           val left = parseGeoJSONAndFilter(newTask, currentTask_.dates(0)).setStyle(leftLeftStyle)
           val right = parseGeoJSONAndFilter(newTask, currentTask_.dates(1)).setStyle(rightRightStyle)
           geoJSONUpdate(left, right)
@@ -849,8 +847,8 @@ final class Model {
       stateVar.update(_.copy(validated = true))
       currentPage.update(_ => Page.Home)
       cloneData(state.token).`then`(datasets =>
-        datasetsVar.update(_ => Some(datasets.asInstanceOf[js.Array[Task_]]))
-        iterator = Some(datasets.asInstanceOf[js.Array[Task_]].iterator)
+        datasetsVar.update(_ => Some(datasets))
+        iterator = Some(datasets.iterator)
         nextFeature()
       )
     }
