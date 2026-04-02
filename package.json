@@ -19,12 +19,12 @@
     "vite": "^4.1.0"
   },
   "dependencies": {
-    "@isomorphic-git/lightning-fs": "^4.6.0",
+    "@isomorphic-git/lightning-fs": "^4.6.2",
     "@turf/turf": "^7.1.0",
     "@types/leaflet.markercluster": "^1.5.5",
     "chart.js": "^2.9.4",
-    "git-essentials": "^1.6.9",
-    "isomorphic-git": "^1.27.1",
+    "git-essentials": "^1.6.13",
+    "isomorphic-git": "^1.37.4",
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
     "leaflet.sync": "^0.2.3"
