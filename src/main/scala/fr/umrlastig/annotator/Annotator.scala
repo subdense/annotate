@@ -4,6 +4,8 @@ import com.raquo.laminar.api.L.{*, given}
 import com.raquo.laminar.nodes.ReactiveHtmlElement
 import org.scalajs.dom
 import org.scalajs.dom.{HTMLDivElement, HTMLElement}
+import org.scalajs.dom.console
+import org.scalajs.dom.window.alert
 import subdense.BuildInfo
 import typings.geojson.mod.*
 import typings.gitEssentials.clientsFsIndexedDbFsClientMod.IndexedDbFsClient
@@ -51,54 +53,56 @@ def hsl2rgb (h: Double, s: Double, l:Double) =
 
 def getColor = toHexString(hsl2rgb(rnd.nextDouble()*360,0.8,0.5))
 
-
-class DatasetList extends js.Object {
-  var datasets: js.Array[String] = _
+@js.native
+trait DatasetList extends js.Object {
+  var datasets: js.Array[String] = js.native
 }
-
-class Dataset extends js.Object {
-  var dates: js.Array[String] = _
-  var wmts: js.Array[String] = _
-  var samples: js.Array[String] = _
+@js.native
+trait Dataset extends js.Object {
+  var dates: js.Array[String] = js.native
+  var wmts: js.Array[String] = js.native
+  var samples: js.Array[String] = js.native
 }
-class Annotation extends js.Object {
-  var username: String = _
-  var types: js.Array[String] = _
-  var quality: Boolean = _
-  var comment: String = _
+@js.native
+trait Annotation extends js.Object {
+  var username: String = js.native
+  var types: js.Array[String] = js.native
+  var quality: Boolean = js.native
+  var comment: String = js.native
 }
-
-class Task extends js.Object {
-  var task: String = _
-  var annotations: js.Array[Annotation] = _
+@js.native
+trait Task extends js.Object {
+  var task: String = js.native
+  var annotations: js.Array[Annotation] = js.native
 }
-class Sample extends js.Object {
-  var tasks: js.Array[Task] = _
+@js.native
+trait Sample extends js.Object {
+  var tasks: js.Array[Task] = js.native
 }
-
-class Dataset_ extends js.Object {
-  var dates: js.Array[String] = _
-  var wmts: js.Array[String] = _
-  var tasks: js.Array[String] = _
+@js.native
+trait Dataset_ extends js.Object {
+  var dates: js.Array[String] = js.native
+  var wmts: js.Array[String] = js.native
+  var tasks: js.Array[String] = js.native
 }
-
-class Task_ extends js.Object {
-  var dataset: String = _
-  var dates: js.Array[String] = _
-  var wmts: js.Array[String] = _
-  var sample: String = _
-  var task: Task = _
-  var modalities: js.Array[js.Array[String]] = _
+@js.native
+trait Task_ extends js.Object {
+  var dataset: String = js.native
+  var dates: js.Array[String] = js.native
+  var wmts: js.Array[String] = js.native
+  var sample: String = js.native
+  var task: Task = js.native
+  var modalities: js.Array[js.Array[String]] = js.native
 }
-
-class Config extends js.Object {
-  var url: String = _
-  var dir: String = _
-  var fsName: String = _
-  var useIsomorphicProxy: String = _
-  var corsProxyIsomorphic: String = _
-  var corsProxyDefault: String = _
-  var annotationSetup: js.Object = _ //{datasetname : js.Array[js.Array[String]], ...}
+@js.native
+trait Config extends js.Object {
+  var url: String = js.native
+  var dir: String = js.native
+  var fsname: String = js.native
+  var useIsomorphicProxy: String = js.native
+  var corsProxyIsomorphic: String = js.native
+  var corsProxyDefault: String = js.native
+  var annotationSetup: js.Object = js.native
 }
 
 // read the config from config.json file, added from CI of the instantiation repo
@@ -107,7 +111,7 @@ val config = JSON.parse(BuildInfo.configJson).asInstanceOf[Config]
 
 val url = config.url
 val dir = config.dir
-val fsName = config.fsName
+val fsName = config.fsname
 val useIsomorphicProxy = config.useIsomorphicProxy.toBoolean
 val corsProxyIsomorphic = config.corsProxyIsomorphic
 val corsProxyDefault = config.corsProxyDefault
@@ -122,13 +126,15 @@ def write(file: String, content: String): Promise[Unit] = client.writeFile(file,
 
 // TODO add branch option? (always work on default branch when cloning, an other config may be useful?)
 def cloneData(token: String): Promise[js.Array[Task_]] =
-
   val proxy = if useIsomorphicProxy then corsProxyIsomorphic else corsProxyDefault
 
   val http_ = """^https?:\/\/"""
   def transform(url:String,b:js.UndefOr[Boolean]) = if useIsomorphicProxy then s"$proxy/${url.replaceAll(http_, "")}" else s"$proxy?url=${encodeURIComponent(url)}"
   client.rm(dir, RmOptions().setRecursive(true).setForce(true))
-    //.`then`[Unit](_=>println(s"done with cleanup"))
+    .`catch`(err => {
+      console.error("Cleanup failed, continuing anyway?", err)
+      js.Promise.reject(err)
+    })
     .`then`[Unit](_ =>
       essentials.clone_(clone.CloneParams(
         dir = dir,
@@ -137,18 +143,32 @@ def cloneData(token: String): Promise[js.Array[Task_]] =
         url = url)
       .setOnAuth((url, auth) => auth.setUsername(token))
       ))
-    .`then`[DatasetList](_=>
-      //println(s"done cloning $url")
-      read[DatasetList](s"$dir/datasets.json"))
+    .`catch`(err => {
+      console.error("Git clone failed", err)
+      js.Promise.reject(err)
+    })
+    .`then`[DatasetList](_=> read[DatasetList](s"$dir/datasets.json"))
+    .`catch`(err => {
+      console.error("Failed to read datasets.json", err)
+      js.Promise.reject(err)
+    })
     .`then`(content=>
-      //println(s"done reading $dir/datasets.json")
-      Promise.all(content.datasets.map(datasetName => read[Dataset](s"$dir/$datasetName").`then`(d => (datasetName, d)))))
+      Promise.all(content.datasets.map(datasetName => read[Dataset](s"$dir/$datasetName")
+        .`catch`(err => {
+          console.error(s"Missing dataset: $datasetName", err)
+          js.Promise.reject(err)
+        })
+        .`then`(d => (datasetName, d)))))
     .`then`(datasets=>
         Promise.all(datasets.asInstanceOf[js.Array[(String, Dataset)]].flatMap((datasetName, dataset) =>
-          dataset.samples.map(sample => read[Sample](s"$dir/$sample").
-            `then`(s =>
-              println(s"Annotation setup from static config : ${js.Object.keys(annotationSetup).toSeq}")
-              println(s"Config for dataset $datasetName : ${annotationSetup.asInstanceOf[js.Dynamic].selectDynamic(datasetName).asInstanceOf[js.Array[js.Array[String]]]}")
+          dataset.samples.map(sample => read[Sample](s"$dir/$sample")
+            .`catch`(err => {
+              console.error(s"Error reading sample: $sample", err)
+              js.Promise.reject(err)
+            })
+            .`then`(s =>
+              console.info(s"Annotation setup from static config : ${js.Object.keys(annotationSetup).toSeq}")
+              console.info(s"Config for dataset $datasetName : ${annotationSetup.asInstanceOf[js.Dynamic].selectDynamic(datasetName).asInstanceOf[js.Array[js.Array[String]]]}")
               js.Dynamic.literal(name = datasetName, dates = dataset.dates, wmts = dataset.wmts, sampleFile = sample, sample = s,
                 modalities = annotationSetup.asInstanceOf[js.Dynamic].selectDynamic(datasetName))
             )
@@ -156,12 +176,11 @@ def cloneData(token: String): Promise[js.Array[Task_]] =
         ))
     )
     .`then`(samples =>
-        //println(s"all sample promises")
         val tasks = samples.asInstanceOf[js.Array[js.Dynamic]].flatMap(s =>
           val modalities = s.modalities.asInstanceOf[js.Array[js.Array[String]]]
-          println(s"Setting up sample with modalities : $modalities ; dims : ${modalities.toSeq.size} x ${modalities(0).toSeq.size}")
+          console.info(s"Setting up sample with modalities : $modalities ; dims : ${modalities.toSeq.size} x ${modalities(0).toSeq.size}")
           s.sample.asInstanceOf[Sample].tasks.map(t =>
-            val task = Task_()
+            val task = Types.newTask_()
             task.dataset = s.name.asInstanceOf[String]
             task.dates = s.dates.asInstanceOf[js.Array[String]]
             task.wmts = s.wmts.asInstanceOf[js.Array[String]]
@@ -171,7 +190,6 @@ def cloneData(token: String): Promise[js.Array[Task_]] =
             task
           )
         )
-        //println(s"${tasks.length} tasks")
         tasks
       )
 
@@ -180,23 +198,34 @@ def gitPush(username: String, token: String, file: String, message: String): Pro
   val proxy = if useIsomorphicProxy  then corsProxyIsomorphic else corsProxyDefault
   val http_ = """^https?:\/\/"""
   def transform(url: String, b: js.UndefOr[Boolean]) = if useIsomorphicProxy then s"$proxy/${url.replaceAll(http_, "")}" else s"$proxy?url=${encodeURIComponent(url)}"
-  println(s"start add $file with ${transform(url, js.undefined)}")
-  essentials.add(AddParams(
-    dir=dir,
-    filepath = file,
-    fs = client
-  )).`then`(_=>
-    println(s"start commit $message with ${transform(url, js.undefined)}")
-    essentials.commit(CommitParams(dir = dir, fs = client, message = message).setAuthor(Author(username)))
-      .`then`(c=>
-        println(s"start push")
-        essentials.push(
-          PushParams(dir = dir, fs = client, http = makeWebHttpClient(whco.WebHttpClientOptions().setTransformRequestUrl(transform)))
-            .setUrl(url)
-            .setOnAuth((_,_) => Auth().setUsername(token))
-        )
+  console.info(s"start add $file with ${transform(url, js.undefined)}")
+
+  essentials.add(AddParams(dir=dir, filepath = file, fs = client))
+    .`catch`(err => {
+      console.error(s"Failed to add $file", err)
+      js.Promise.reject(err)
+    })
+    .`then`[String](_=> {
+      console.info(s"start commit $message with ${transform(url, js.undefined)}")
+      essentials.commit(CommitParams(dir = dir, fs = client, message = message).setAuthor(Author(username)))
+    })
+    .`catch`(err => {
+      console.error("Commit failed", err)
+      js.Promise.reject(err)
+    })
+    .`then`[PushResult](c=> {
+      console.info(s"start push")
+      essentials.push(
+        PushParams(dir = dir, fs = client, http = makeWebHttpClient(whco.WebHttpClientOptions().setTransformRequestUrl(transform)))
+          .setUrl(url)
+          .setOnAuth((_, _) => Auth().setUsername(token))
       )
-  )
+    })
+    .`catch`(err => {
+      console.error("Push failed! Data might be lost.", err)
+      // Optional: Show a UI alert to the user here
+      js.Promise.reject(err)
+    })
 
 @main
 def Annotator(): Unit =
@@ -225,6 +254,10 @@ object Main:
     JSON.parse(text).asInstanceOf[FeatureCollection[Geometry, GeoJsonProperties]]
 
   private def header(): Element =
+    errorMessage.signal.map {
+      case Some(msg) => div(cls("error-banner"), msg)
+      case None => div()
+    }
     navTag(
       menuTag(
         li(
@@ -267,11 +300,13 @@ object Main:
       div(img(width("60px"),height("60px"),src("Loading_2.gif")),
         display <-- stateVar.signal.map(_.validated).combineWithFn(datasetsVar.signal.map(_.isDefined))((a:Boolean,b:Boolean)=>if !a||b then "none" else "initial"))
     )
+  end header
+
   def appElement(): Element =
     div(
       header(),
       child <-- currentPage.signal.splitOne(x => x) { (id, initial, signal) =>
-        println(s"Split ${id.name}")
+        console.info(s"Split ${id.name}")
         id match {
           case Page.Home          => renderHome()
           case Page.Dashboard     => renderDashboard()
@@ -357,7 +392,7 @@ object Main:
 
   private def renderGlobalDashboard(): Element =
     def taskFeatures(dateLeft: String, dateRight: String)(task: Task_): Promise[(js.Array[Feature[Geometry,GeoJsonProperties]],js.Array[Feature[Geometry,GeoJsonProperties]])] =
-      println("taskFile: "+task.task.task)
+      console.info("taskFile: "+task.task.task)
       read[String](s"$dir/${task.task.task}", false).`then`(content =>
         val newTask = content
         val features = asFeatureCollection(newTask).features
@@ -378,7 +413,7 @@ object Main:
     val datasetVar: Var[js.Array[(String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])]] = Var(js.Array())
     val datasetsVarObserver = Observer[Option[js.Array[Task_]]](
       onNext = nextValue =>
-        println("datasetsVarObserver with " + nextValue.isDefined)
+        console.info("datasetsVarObserver with " + nextValue.isDefined)
         nextValue.map(datasets=>
           Promise.all[(String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])](
             datasets.toArray
@@ -388,7 +423,7 @@ object Main:
                   array.map(taskFeatures(taskState.now().date1,taskState.now().date2)).toJSArray
                 ).`then`(a=>
                   val b = a.unzip
-                  println(s"Left: ${b._1.flatten.toJSArray.size} - Right: ${b._2.flatten.toJSArray.size}")
+                  console.info(s"Left: ${b._1.flatten.toJSArray.size} - Right: ${b._2.flatten.toJSArray.size}")
                   (d.split("/").head,array.head.wmts(0),array.head.wmts(1),L.GeoJSON__[Geometry,GeoJsonProperties](FeatureCollection(b._1.flatten.toJSArray)),L.GeoJSON__[Geometry,GeoJsonProperties](FeatureCollection(b._2.flatten.toJSArray)))
                 )
               ).toJSIterable
@@ -397,7 +432,7 @@ object Main:
     )
 
     def updateGlobalMap(dataset: (String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])): Unit = {
-      println(s"update global Maps for dataset ${dataset._1}")
+      console.info(s"update global Maps for dataset ${dataset._1}")
       val colorMap = mutable.Map[String, String]()
       def styled(geojson: GeoJSON__[Geometry,GeoJsonProperties]):GeoJSON__[Geometry,GeoJsonProperties] = geojson.setStyle(f =>
         val feature = f.asInstanceOf[Feature[Geometry, GeoJsonProperties]]
@@ -447,9 +482,9 @@ object Main:
       val rightFC:FeatureCollection[Geometry, GeoJsonProperties] = dataset._5.toGeoJSON().asInstanceOf[FeatureCollection[Geometry, GeoJsonProperties]]
       val rightSampleMarkers: js.Array[Layer] = sampleMarkers(rightFC)
       val rightTaskMarkers: js.Array[Layer] = taskMarkers(rightFC)
-      globalMapLeft.zip(globalMapRight).foreach((left,right) =>
-        globalMapLeftControl.foreach(left.removeControl)
-        globalMapRightControl.foreach(right.removeControl)
+      globalMapLeftVar.now().zip(globalMapRightVar.now()).foreach((left,right) =>
+        globalMapLeftControlVar.now().foreach(left.removeControl)
+        globalMapRightControlVar.now().foreach(right.removeControl)
         updateMaps(left, right, lGeoJSON, rGeoJSON, Some(dataset._2), Some(dataset._3))
         def updateGroups(map: Map_, sampleMarkers: js.Array[Layer], taskMarkers: js.Array[Layer]):Control_.Layers =
           val sampleGroup = layerGroup(sampleMarkers).addTo(map)
@@ -465,9 +500,9 @@ object Main:
           }:Unit)
           controls
         val leftControls = updateGroups(left,leftSampleMarkers,leftTaskMarkers)
-        globalMapLeftControl = Some(leftControls)
+        globalMapLeftControlVar.update(_ => Some(leftControls))
         val rightControls = updateGroups(right,rightSampleMarkers,rightTaskMarkers)
-        globalMapRightControl = Some(rightControls)
+        globalMapRightControlVar.update(_ => Some(rightControls))
       )
     }
 
@@ -481,7 +516,7 @@ object Main:
       onNext = nextValue =>
         if !nextValue.isEmpty then
           val dsName = datasetSelected.now()
-          println(s"dsObserver with ${nextValue.length} elements and ${nextValue.head} as head and $dsName selected")
+          console.info(s"dsObserver with ${nextValue.length} elements and ${nextValue.head} as head and $dsName selected")
           val ds = if dsName.isEmpty then Some(nextValue.head) else nextValue.find(_._1 == dsName)
           ds.foreach(dataset=>updateGlobalMap(dataset))
     )
@@ -498,12 +533,10 @@ object Main:
         // Wait for the component to be mounted before adding the leaflet and syncs
         onMountCallback(ctx =>
           val (l,r) = (map("globalMapLeft",true),map("globalMapRight",false))
-          globalMapLeft = Some(l)
-          //println(s"wmts left = ${taskState.now().wms1}")
-          globalMapRight = Some(r)
-          //println(s"wmts right = ${taskState.now().wms2}")
           l.sync(r, SyncMapOptions())
           r.sync(l, SyncMapOptions())
+          globalMapLeftVar.update(_ => Some(l))
+          globalMapRightVar.update(_ => Some(r))
         ),
         div(idAttr("global-container"), cls("my-container"),
           div(idAttr("globalMapLeft"), cls("mapLeft"), cls("map"),
@@ -520,7 +553,7 @@ object Main:
   implicit def map2sync(jq: Map_): SMap = jq.asInstanceOf[SMap]
 
   def map(name: String, left: Boolean): Map_ =
-    println("create map")
+    console.info("create map")
     L.map(name, MapOptions().setAttributionControl(!left).setZoomControl(left)).setView(LatLngLiteral(48.8, 2.3), zoom = 18)
 
   private def addTileLayer(map: Map_)(wmts:String): Unit =
@@ -538,7 +571,7 @@ object Main:
     val layers = split(1).split('&')(0).split(',')
     val params = split(1).split('&').tail.map(s => {val kv = s.split('='); (kv(0),kv(1))}).toMap
     val wmtsParams: Map[String,String] = defaultWMTS.keys.map(k => if(params.contains(k)) (k,params(k)) else (k,defaultWMTS(k))).toMap
-    println(s"addTileLayer with url $baseUrl, layers = ${layers.mkString(",")} and parameters ${params.mkString(",")}")
+    console.info(s"addTileLayer with url $baseUrl, layers = ${layers.mkString(",")} and parameters ${params.mkString(",")}")
     if baseUrl.contains("wmts") then
       for (layer <- layers) {
         tileLayer(makeWMTS(baseUrl,Map("LAYER"->layer)++wmtsParams),
@@ -568,7 +601,7 @@ object Main:
           if (prevTypes.isEmpty) Seq.fill(n)("").updated(index, name)
           else prevTypes.updated(index, name)},
         step=index))
-        println(s"types: ${annotationState.now().types}")
+        console.info(s"types: ${annotationState.now().types}")
       }
     )
 
@@ -591,7 +624,7 @@ object Main:
   private def renderAnnotate(): Element =
     // generic scheme : children( prev button if not first, [... typeButtons], next button if not last, save button if last) <-- annotationState.signal.map(_.step== INDEX )
     val modalities = taskState.now().modalities
-    println(s"Modalities for task : $modalities")
+    console.info(s"Modalities for task : $modalities")
     val toolbar = modalities.zipWithIndex.map{ case (s,i) =>
         val n = modalities.length
         val elements = if (n==1) {s.map(typeElement(_, i, n))++Seq(saveButton)} else {
@@ -604,11 +637,11 @@ object Main:
       // Wait for the component to be mounted before adding the leaflet and syncs
       onMountCallback(ctx =>
         val (l, r) = (map("mapLeft", true), map("mapRight", false))
-        mapLeft = Some(l)
-        mapRight = Some(r)
         l.sync(r, SyncMapOptions())
         r.sync(l, SyncMapOptions())
-        //println(s"Modalities after mount : ${taskState.now().modalities}")
+        mapLeftVar.update(_ => Some(l))
+        mapRightVar.update(_ => Some(r))
+
         updateMaps(l,r,geoJSON.now().get._1,geoJSON.now().get._2,Some(taskState.now().wms1),Some(taskState.now().wms2))
       ),
       div(idAttr("my-container"), cls("my-container"),
@@ -625,14 +658,14 @@ object Main:
     val currentAnnotationState = annotationState.now()
     val currentTaskState = taskState.now()
     val currentUserState = stateVar.now()
-    println(s"save: annotationState: $currentAnnotationState")
-    //println(s"save: annotationState: link: ${currentAnnotationState.linkType} ; change: ${currentAnnotationState.changeType}")
+    console.info(s"save: annotationState: $currentAnnotationState")
     val sampleFile = currentTaskState.sampleFile
     val taskFile = currentTaskState.taskFile
-    read[Sample](s"$dir/$sampleFile").`then`(content =>
-      //println(s"read $sampleFile:\n${JSON.stringify(content, space=2)}")
-      val task = content.tasks.find(_.task == taskFile).get
-      val annotation = Annotation()
+    read[Sample](s"$dir/$sampleFile").`then`(content => {
+      val task = content.tasks.find(_.task == taskFile).getOrElse(
+        throw new NoSuchElementException(s"Task $taskFile not found in $sampleFile")
+      )
+      val annotation = Types.newAnnotation()
       annotation.username = currentUserState.username
       //annotation.link = currentAnnotationState.linkType
       //annotation.change = currentAnnotationState.changeType
@@ -644,31 +677,45 @@ object Main:
       task.annotations.push(annotation)
       //println(s"now\n${JSON.stringify(content, space=2)}")
       write(s"$dir/$sampleFile", JSON.stringify(content, space = 2))
-      gitPush(currentUserState.username, currentUserState.token, sampleFile, s"Update $taskFile for ${annotation.username}")
-      datasetsVar.update(datasets => datasets.map(_.map {
-      t =>
-        if (t.task.task == taskFile) {
-          val newTask = Task_()
-          newTask.dataset = t.dataset
-          newTask.dates = t.dates
-          newTask.wmts = t.wmts
-          newTask.sample = t.sample
-          newTask.modalities = t.modalities
-          newTask.task = Task()
-          newTask.task.task = taskFile
-          newTask.task.annotations = task.annotations
-          newTask
-        } else t
-    }))
-    )
-    nextFeature().`then`(updated =>
-      if updated then
-        mapLeft.zip(mapRight).foreach((l, r) => updateMaps(l, r, geoJSON.now().get._1, geoJSON.now().get._2))
-          currentPage.update(_ => Page.Annotate)
-      else
-        annotationFinished.update(_ => true)
-          currentPage.update(_ => Page.Dashboard)
-    )
+        .`then`(_ => gitPush(currentUserState.username, currentUserState.token, sampleFile, s"Update $taskFile for ${annotation.username}"))
+        .`then`(_ => {
+          datasetsVar.update(datasets => datasets.map(_.map {
+            t =>
+              if (t.task.task == taskFile) {
+                val newTask = Types.newTask_()
+                newTask.dataset = t.dataset
+                newTask.dates = t.dates
+                newTask.wmts = t.wmts
+                newTask.sample = t.sample
+                newTask.modalities = t.modalities
+                newTask.task = Types.newTask()
+                newTask.task.task = taskFile
+                newTask.task.annotations = task.annotations
+                newTask
+              } else t
+          }))
+
+          nextFeature().`then`(updated => {
+            if updated then
+              mapLeftVar.now().zip(mapRightVar.now()).foreach((l, r) => updateMaps(l, r, geoJSON.now().get._1, geoJSON.now().get._2))
+              currentPage.update(_ => Page.Annotate)
+            else
+              annotationFinished.update(_ => true)
+              currentPage.update(_ => Page.Dashboard)
+          })
+        })
+        .`catch`(err => {
+          console.error("Save operation failed!", err)
+          // TODO: Show a toast notification to the user
+          errorMessage.update(_=>Some(s"Error: ${err.toString}"))
+          alert("Failed to save annotation. Check console for details.")
+        })
+    })
+    .`catch`(err => {
+      console.error("Failed to read sample file", err)
+      errorMessage.update(_=>Some(s"Error: ${err.toString}"))
+      alert("Could not load sample data.")
+    })
   }
 
   private def renderInputRow(error: UserState => Option[String])(mods: Modifier[HtmlElement]*): HtmlElement = {
@@ -760,17 +807,18 @@ final class Model {
   val taskState: Var[TaskState] = Var(TaskState())
   val datasetsVar: Var[Option[js.Array[Task_]]] = Var(None)
   private var iterator: Option[Iterator[Task_]] = None
-  var mapLeft: Option[Map_] = None
-  var mapRight: Option[Map_] = None
-  var globalMapLeft: Option[Map_] = None
-  var globalMapLeftControl: Option[Control_.Layers] = None
-  var globalMapRightControl: Option[Control_.Layers] = None
-  var globalMapRight: Option[Map_] = None
+  val mapLeftVar: Var[Option[Map_]] = Var(None)
+  val mapRightVar: Var[Option[Map_]] = Var(None)
+  var globalMapLeftVar: Var[Option[Map_]] = Var(None)
+  var globalMapRightVar: Var[Option[Map_]] = Var(None)
+  var globalMapLeftControlVar: Var[Option[Control_.Layers]] = Var(None)
+  var globalMapRightControlVar: Var[Option[Control_.Layers]] = Var(None)
   val annotationFinished: Var[Boolean] = Var(false)
   //case class AnnotationState(linkType: String = "", changeType: String = "", quality: Boolean = false, comment: String = "", step: Int = 0)
   case class AnnotationState(types: Seq[String] = Seq.empty[String], quality: Boolean = false, comment: String = "", step: Int = 0)
   val annotationState: Var[AnnotationState] = Var(AnnotationState())
   val datasetSelected: Var[String] = Var("")
+  val errorMessage: Var[Option[String]] = Var(None)
 
   case class UserState(username: String = "",token: String = "",showErrors: Boolean = false,validated: Boolean = false) {
     def hasErrors: Boolean = usernameError.nonEmpty || tokenError.nonEmpty
@@ -784,28 +832,17 @@ final class Model {
     val (username, token) = (localStorageGetOrElse("username"), localStorageGetOrElse("token"))
     Var(UserState(username,token))
   }
-  /*{
-    val (username, token) = (localStorageGetOrElse("username"), localStorageGetOrElse("token"))
-    val validated = username.nonEmpty && token.nonEmpty
-    println(s"logged $username $validated")
-    if validated then cloneData(token).map(datasets => {
-        datasetsVar.update(_ => Some(datasets.asInstanceOf[js.Array[Task_]]))
-        iterator = datasets.asInstanceOf[js.Array[Task_]].iterator
-        nextFeature()
-      })
-    Var(UserState(username,token,validated))
-  }*/
 
   private def geoJSONUpdate(left:GeoJSON__[Geometry,GeoJsonProperties], right:GeoJSON__[Geometry,GeoJsonProperties]): Unit =
     geoJSON.update(previous =>
       previous match {
         case Some((previousLeft, previousRight)) =>
-          mapLeft.zip(mapRight).foreach((l,r)=>
+          mapLeftVar.now().zip(mapRightVar.now()).foreach((l,r)=>
             previousLeft.removeFrom(l)
             previousRight.removeFrom(r)
           )
         case None =>
-          println(s"previous was None")
+          console.info(s"previous was None")
       }
       Some((left, right))
     )
@@ -818,8 +855,10 @@ final class Model {
 
     if iterator.isDefined && iterator.get.hasNext then
       val currentTask_ = iterator.get.next()
-      //println(s"new task ${currentTask_.task.task}")
-      if currentTask_.task.annotations.exists(_.username == stateVar.now().username) then nextFeature()
+      if currentTask_.task.annotations.exists(_.username == stateVar.now().username) then {
+        console.info(s"Already annotated by ${stateVar.now().username}")
+        nextFeature()
+      }
       else
         taskState.update(state => state.copy(
           date1 = currentTask_.dates(0),date2=currentTask_.dates(1),
@@ -835,7 +874,10 @@ final class Model {
           geoJSONUpdate(left, right)
           true
         )
-    else Promise.resolve(false)
+    else {
+      console.info("No task left")
+      Promise.resolve(false)
+    }
   val tokenWriter: Observer[String] = stateVar.updater[String]((state, token) => state.copy(token = token))
   val usernameWriter: Observer[String] = stateVar.updater[String]((state, username) => state.copy(username = username))
   val submitter: Observer[UserState] = Observer[UserState] { state =>
@@ -856,13 +898,11 @@ final class Model {
 
   def logInOut(): Unit = {
     if (stateVar.now().validated) {
-      //println("logging out")
       dom.window.localStorage.removeItem("token")
       dom.window.localStorage.removeItem("username")
       currentPage.update(_ => Page.Home)
       stateVar.update(_.copy(validated = false))
     } else {
-      //println("logging in")
       currentPage.update(_ => Page.Login)
     }
   }
