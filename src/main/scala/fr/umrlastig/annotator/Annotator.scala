@@ -12,6 +12,7 @@ import typings.gitEssentials.clientsFsIndexedDbFsClientMod.IndexedDbFsClient
 import typings.gitEssentials.clientsHttpWebHttpClientMod.makeWebHttpClient
 import typings.gitEssentials.distTypesApiAddMod.AddParams
 import typings.gitEssentials.distTypesApiCommitMod.CommitParams
+import typings.gitEssentials.distTypesApiPullMod.PullParams
 import typings.gitEssentials.distTypesApiPushMod.{PushParams, PushResult}
 import typings.gitEssentials.distTypesModelsAuthMod.Auth
 import typings.gitEssentials.distTypesModelsAuthorMod.Author
@@ -223,7 +224,23 @@ def gitPush(username: String, token: String, file: String, message: String): Pro
     })
     .`catch`(err => {
       console.error("Push failed! Data might be lost.", err)
-      // Optional: Show a UI alert to the user here
+      js.Promise.reject(err)
+    })
+
+def gitPull(username: String, token: String): Promise[Unit] =
+  val useIsomorphicProxy = true
+  val proxy = if useIsomorphicProxy then corsProxyIsomorphic else corsProxyDefault
+  val http_ = """^https?:\/\/"""
+  def transform(url: String, b: js.UndefOr[Boolean]) = if useIsomorphicProxy then s"$proxy/${url.replaceAll(http_, "")}" else s"$proxy?url=${encodeURIComponent(url)}"
+
+  essentials.pull(
+      PullParams(dir = dir, fs = client, http = makeWebHttpClient(whco.WebHttpClientOptions().setTransformRequestUrl(transform)))
+        .setUrl(url)
+        .setOnAuth((_, auth) => auth.setUsername(token))
+        .setAuthor(Author(username))
+    )
+    .`catch`(err => {
+      console.error("Pull failed:", err)
       js.Promise.reject(err)
     })
 
@@ -421,25 +438,33 @@ object Main:
       )
     def username = stateVar.now().username
     val datasetVar: Var[js.Array[(String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])]] = Var(js.Array())
-    val datasetsVarObserver = Observer[Option[js.Array[Task_]]](
-      onNext = nextValue =>
-        console.info("datasetsVarObserver with " + nextValue.isDefined)
-        nextValue.map(datasets=>
-          Promise.all[(String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])](
-            datasets.toArray
-              .groupBy(_.dataset)
-              .map((d,array)=>
-                Promise.all[(js.Array[Feature[Geometry,GeoJsonProperties]],js.Array[Feature[Geometry,GeoJsonProperties]])](
-                  array.map(taskFeatures(taskState.now().date1,taskState.now().date2)).toJSArray
-                ).`then`(a=>
-                  val b = a.unzip
-                  console.info(s"Left: ${b._1.flatten.toJSArray.size} - Right: ${b._2.flatten.toJSArray.size}")
-                  (d.split("/").head,array.head.wmts(0),array.head.wmts(1),L.GeoJSON__[Geometry,GeoJsonProperties](FeatureCollection(b._1.flatten.toJSArray)),L.GeoJSON__[Geometry,GeoJsonProperties](FeatureCollection(b._2.flatten.toJSArray)))
+
+    val datasetsProcessor = Observer[Option[js.Array[Task_]]] {
+      case None =>
+        datasetVar.update(_ => js.Array())
+      case Some(datasets) =>
+        Promise.all[(String, String, String, GeoJSON__[Geometry,GeoJsonProperties], GeoJSON__[Geometry,GeoJsonProperties])](
+          datasets.toArray
+            .groupBy(_.dataset)
+            .map { case (d, arr) =>
+              Promise.all[(js.Array[Feature[Geometry, GeoJsonProperties]], js.Array[Feature[Geometry, GeoJsonProperties]])](
+                arr.map(taskFeatures(taskState.now().date1, taskState.now().date2)).toJSArray
+              ).`then` { a =>
+                val b = a.unzip
+                (
+                  d.split("/").head,
+                  arr.head.wmts(0),
+                  arr.head.wmts(1),
+                  L.GeoJSON__[Geometry, GeoJsonProperties](FeatureCollection(b._1.flatten.toJSArray)),
+                  L.GeoJSON__[Geometry, GeoJsonProperties](FeatureCollection(b._2.flatten.toJSArray))
                 )
-              ).toJSIterable
-          ).`then`(v=>datasetVar.set(v))
-        )
-    )
+              }
+            }.toJSArray
+        ).`then` { results =>
+          datasetVar.update(_ => results)
+        }
+    }
+    datasetsVar.signal --> datasetsProcessor
 
     def updateGlobalMap(dataset: (String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])): Unit = {
       console.info(s"update global Maps for dataset ${dataset._1}")
@@ -516,30 +541,26 @@ object Main:
       )
     }
 
-    val dsSelectedObserver = Observer[String](
-      onNext = nextValue =>
-        val datasets = datasetVar.now()
-        val ds = datasets.find(_._1 == nextValue)
-        ds.foreach(dataset => updateGlobalMap(dataset))
-    )
-    val dsObserver = Observer[js.Array[(String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])]](
-      onNext = nextValue =>
-        if !nextValue.isEmpty then
-          val dsName = datasetSelected.now()
-          console.info(s"dsObserver with ${nextValue.length} elements and ${nextValue.head} as head and $dsName selected")
-          val ds = if dsName.isEmpty then Some(nextValue.head) else nextValue.find(_._1 == dsName)
-          ds.foreach(dataset=>updateGlobalMap(dataset))
-    )
+    val mapUpdater = Observer[(js.Array[(String, String, String, GeoJSON__[Geometry, GeoJsonProperties], GeoJSON__[Geometry, GeoJsonProperties])], String)] {
+      case (datasets, selectedName) =>
+        if (datasets.nonEmpty) {
+          val selectedDataset = if (selectedName.isEmpty) datasets.headOption else datasets.find(_._1 == selectedName)
+          selectedDataset.foreach(updateGlobalMap)
+        }
+    }
+
+    datasetVar.signal.combineWith(datasetSelected.signal) --> mapUpdater
+
     div(
       h1(Page.AnnotatedMaps.name),
       label("Dataset: ",forId("datasetSelect")),
       select(idAttr("datasetSelect"),
         children <-- datasetVar.signal.map(l=>l.map(p=>option(p._1).amend(selected(p._1 == datasetSelected.now())))),
         onChange.mapToValue --> datasetSelected,
-        datasetSelected.signal --> dsSelectedObserver
+        datasetVar.signal.combineWith(datasetSelected.signal) --> mapUpdater,
       ),
       div(
-        datasetVar.signal --> dsObserver,
+        datasetVar.signal.combineWith(datasetSelected.signal) --> mapUpdater,
         // Wait for the component to be mounted before adding the leaflet and syncs
         onMountCallback(ctx =>
           val (l,r) = (map("globalMapLeft",true),map("globalMapRight",false))
@@ -555,7 +576,7 @@ object Main:
           )
         ),
       ),
-      datasetsVar.signal --> datasetsVarObserver
+      datasetsVar.signal --> datasetsProcessor
     )
   end renderGlobalDashboard
 
@@ -671,61 +692,67 @@ object Main:
     console.info(s"save: annotationState: $currentAnnotationState")
     val sampleFile = currentTaskState.sampleFile
     val taskFile = currentTaskState.taskFile
-    read[Sample](s"$dir/$sampleFile").`then`(content => {
-      val task = content.tasks.find(_.task == taskFile).getOrElse(
-        throw new NoSuchElementException(s"Task $taskFile not found in $sampleFile")
-      )
-      val annotation = Types.newAnnotation()
-      annotation.username = currentUserState.username
-      //annotation.link = currentAnnotationState.linkType
-      //annotation.change = currentAnnotationState.changeType
-      annotation.types = currentAnnotationState.types.toJSArray
-      annotation.quality = currentAnnotationState.quality
-      annotation.comment = currentAnnotationState.comment
-      //println(s"annotation: link: ${annotation.link} ; change: ${annotation.change}")
-      //println(s"annotationState: link: ${currentAnnotationState.linkType} ; change: ${currentAnnotationState.changeType}")
-      task.annotations.push(annotation)
-      //println(s"now\n${JSON.stringify(content, space=2)}")
-      write(s"$dir/$sampleFile", JSON.stringify(content, space = 2))
-        .`then`(_ => gitPush(currentUserState.username, currentUserState.token, sampleFile, s"Update $taskFile for ${annotation.username}"))
-        .`then`(_ => {
-          datasetsVar.update(datasets => datasets.map(_.map {
-            t =>
-              if (t.task.task == taskFile) {
-                val newTask = Types.newTask_()
-                newTask.dataset = t.dataset
-                newTask.dates = t.dates
-                newTask.wmts = t.wmts
-                newTask.sample = t.sample
-                newTask.modalities = t.modalities
-                newTask.task = Types.newTask()
-                newTask.task.task = taskFile
-                newTask.task.annotations = task.annotations
-                newTask
-              } else t
-          }))
+    gitPull(currentUserState.username, currentUserState.token)
+      .`then`(_ => {
+        read[Sample](s"$dir/$sampleFile").`then`(content => {
+          val task = content.tasks.find(_.task == taskFile).getOrElse(
+            throw new NoSuchElementException(s"Task $taskFile not found in $sampleFile")
+          )
+          val annotation = Types.newAnnotation()
+          annotation.username = currentUserState.username
+          //annotation.link = currentAnnotationState.linkType
+          //annotation.change = currentAnnotationState.changeType
+          annotation.types = currentAnnotationState.types.toJSArray
+          annotation.quality = currentAnnotationState.quality
+          annotation.comment = currentAnnotationState.comment
+          task.annotations.push(annotation)
+          write(s"$dir/$sampleFile", JSON.stringify(content, space = 2))
+            .`then`(_ => gitPush(currentUserState.username, currentUserState.token, sampleFile, s"Update $taskFile for ${annotation.username}"))
+            .`then`(_ => {
+              datasetsVar.update(datasets => datasets.map(_.map {
+                t =>
+                  if (t.task.task == taskFile) {
+                    val newTask = Types.newTask_()
+                    newTask.dataset = t.dataset
+                    newTask.dates = t.dates
+                    newTask.wmts = t.wmts
+                    newTask.sample = t.sample
+                    newTask.modalities = t.modalities
+                    newTask.task = Types.newTask()
+                    newTask.task.task = taskFile
+                    newTask.task.annotations = task.annotations
+                    newTask
+                  } else t
+              }))
 
-          nextFeature().`then`(updated => {
-            if updated then
-              mapLeftVar.now().zip(mapRightVar.now()).foreach((l, r) => updateMaps(l, r, geoJSON.now().get._1, geoJSON.now().get._2))
-              currentPage.update(_ => Page.Annotate)
-            else
-              annotationFinished.update(_ => true)
-              currentPage.update(_ => Page.Dashboard)
-          })
+              nextFeature().`then`(updated => {
+                if updated then
+                  mapLeftVar.now().zip(mapRightVar.now()).foreach((l, r) => updateMaps(l, r, geoJSON.now().get._1, geoJSON.now().get._2))
+                  currentPage.update(_ => Page.Annotate)
+                else
+                  annotationFinished.update(_ => true)
+                  currentPage.update(_ => Page.Dashboard)
+              })
+            })
+            .`catch`(err => {
+              console.error("Save operation failed!", err)
+              // Show a notification to the user
+              errorMessage.update(_=>Some(s"Error: ${err.toString}"))
+              alert("Failed to save annotation. Check console for details.")
+            })
         })
         .`catch`(err => {
-          console.error("Save operation failed!", err)
-          // TODO: Show a toast notification to the user
+          console.error("Failed to read sample file", err)
+          // Show a notification to the user
           errorMessage.update(_=>Some(s"Error: ${err.toString}"))
-          alert("Failed to save annotation. Check console for details.")
+          alert("Could not load sample data.")
         })
-    })
-    .`catch`(err => {
-      console.error("Failed to read sample file", err)
-      errorMessage.update(_=>Some(s"Error: ${err.toString}"))
-      alert("Could not load sample data.")
-    })
+      })
+      .`catch`(err => {
+        console.error("Pull or read failed:", err)
+        errorMessage.update(_ => Some(s"Error: ${err.toString}"))
+        alert("Failed to sync with server. Please refresh and try again.")
+      })
   }
 
   private def renderInputRow(error: UserState => Option[String])(mods: Modifier[HtmlElement]*): HtmlElement = {
@@ -899,11 +926,17 @@ final class Model {
       dom.window.localStorage.setItem("username", state.username)
       stateVar.update(_.copy(validated = true))
       currentPage.update(_ => Page.Home)
-      cloneData(state.token).`then`(datasets =>
-        datasetsVar.update(_ => Some(datasets))
-        iterator = Some(datasets.iterator)
-        nextFeature()
-      )
+      cloneData(state.token)
+        .`then`(datasets =>
+          datasetsVar.update(_ => Some(datasets))
+          iterator = Some(datasets.iterator)
+          nextFeature()
+        )
+        .`catch`(err => {
+          errorMessage.update(_ => Some(s"Failed to load data: ${err.toString}"))
+          stateVar.update(_.copy(validated = false))
+          currentPage.update(_ => Page.Login)
+        })
     }
   }
 
