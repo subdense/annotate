@@ -125,12 +125,12 @@ def read[T](file: String, parse: Boolean = true): Promise[T] = client.readFile(f
 
 def write(file: String, content: String): Promise[Unit] = client.writeFile(file, content, EncodingOptions().setEncoding(utf8))
 
+val proxy = if useIsomorphicProxy then corsProxyIsomorphic else corsProxyDefault
+val http_ = """^https?:\/\/"""
+def transform(url: String, b: js.UndefOr[Boolean]) = if useIsomorphicProxy then s"$proxy/${url.replaceAll(http_, "")}" else s"$proxy?url=${encodeURIComponent(url)}"
+
 // TODO add branch option? (always work on default branch when cloning, an other config may be useful?)
 def cloneData(token: String): Promise[js.Array[Task_]] =
-  val proxy = if useIsomorphicProxy then corsProxyIsomorphic else corsProxyDefault
-
-  val http_ = """^https?:\/\/"""
-  def transform(url:String,b:js.UndefOr[Boolean]) = if useIsomorphicProxy then s"$proxy/${url.replaceAll(http_, "")}" else s"$proxy?url=${encodeURIComponent(url)}"
   client.rm(dir, RmOptions().setRecursive(true).setForce(true))
     .`catch`(err => {
       console.error("Cleanup failed, continuing anyway?", err)
@@ -195,10 +195,6 @@ def cloneData(token: String): Promise[js.Array[Task_]] =
       )
 
 def gitPush(username: String, token: String, file: String, message: String): Promise[PushResult] =
-  val useIsomorphicProxy = true
-  val proxy = if useIsomorphicProxy  then corsProxyIsomorphic else corsProxyDefault
-  val http_ = """^https?:\/\/"""
-  def transform(url: String, b: js.UndefOr[Boolean]) = if useIsomorphicProxy then s"$proxy/${url.replaceAll(http_, "")}" else s"$proxy?url=${encodeURIComponent(url)}"
   console.info(s"start add $file with ${transform(url, js.undefined)}")
 
   essentials.add(AddParams(dir=dir, filepath = file, fs = client))
@@ -228,11 +224,6 @@ def gitPush(username: String, token: String, file: String, message: String): Pro
     })
 
 def gitPull(username: String, token: String): Promise[Unit] =
-  val useIsomorphicProxy = true
-  val proxy = if useIsomorphicProxy then corsProxyIsomorphic else corsProxyDefault
-  val http_ = """^https?:\/\/"""
-  def transform(url: String, b: js.UndefOr[Boolean]) = if useIsomorphicProxy then s"$proxy/${url.replaceAll(http_, "")}" else s"$proxy?url=${encodeURIComponent(url)}"
-
   essentials.pull(
       PullParams(dir = dir, fs = client, http = makeWebHttpClient(whco.WebHttpClientOptions().setTransformRequestUrl(transform)))
         .setUrl(url)
@@ -298,6 +289,13 @@ object Main:
           ),
           li(
             button(
+              onClick --> { _ => currentPage.update(_ => Page.Leaderboard) },
+              disabled <-- datasetsVar.signal.map(_.isEmpty),
+              Page.Leaderboard.name
+            )
+          ),
+          li(
+            button(
               onClick --> { _ => currentPage.update(_ => Page.AnnotatedMaps) },
               disabled <-- datasetsVar.signal.map(_.isEmpty),
               Page.AnnotatedMaps.name
@@ -337,6 +335,7 @@ object Main:
         id match {
           case Page.Home          => renderHome()
           case Page.Dashboard     => renderDashboard()
+          case Page.Leaderboard   => renderLeaderboard()
           case Page.AnnotatedMaps => renderGlobalDashboard()
           case Page.Annotate      => renderAnnotate()
           case Page.Login         => renderLogin()
@@ -419,7 +418,7 @@ object Main:
 
   private def renderGlobalDashboard(): Element =
     def taskFeatures(dateLeft: String, dateRight: String)(task: Task_): Promise[(js.Array[Feature[Geometry,GeoJsonProperties]],js.Array[Feature[Geometry,GeoJsonProperties]])] =
-      console.info("taskFile: "+task.task.task)
+      console.debug("taskFile: "+task.task.task)
       read[String](s"$dir/${task.task.task}", false).`then`(content =>
         val newTask = content
         val features = asFeatureCollection(newTask).features
@@ -465,9 +464,34 @@ object Main:
         }
     }
     datasetsVar.signal --> datasetsProcessor
+    val leaderboardProcessor = Observer[Option[js.Array[Task_]]] {
+      case None =>
+        console.info("leaderboardProcessor with no task")
+        leaderboardData.update(_ => List.empty)
+      case Some(datasets) =>
+        console.info(s"leaderboardProcessor with ${datasets.size} datasets")
+        // Get all annotations from all tasks
+        val allAnnotations = datasets.flatMap(_.task.annotations)
+        // Count by username
+        val counts = mutable.Map[String, Int]()
+        allAnnotations.foreach { ann =>
+          val user = ann.username
+          counts(user) = counts.getOrElse(user, 0) + 1
+        }
+        // Calculate total for percentage
+        val total = counts.values.sum
+        val totalDouble = if (total == 0) 1.0 else total.toDouble
+        // Convert to list and sort descending
+        val ranked = counts.toList
+          .map { case (user, count) => UserRank(user, count, (count / totalDouble) * 100) }
+          .sortBy(-_.count) // Sort descending by count
+        leaderboardData.update(_ => ranked)
+    }
+
+    datasetsVar.signal --> leaderboardProcessor
 
     def updateGlobalMap(dataset: (String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])): Unit = {
-      console.info(s"update global Maps for dataset ${dataset._1}")
+      console.debug(s"update global Maps for dataset ${dataset._1}")
       val colorMap = mutable.Map[String, String]()
       def styled(geojson: GeoJSON__[Geometry,GeoJsonProperties]):GeoJSON__[Geometry,GeoJsonProperties] = geojson.setStyle(f =>
         val feature = f.asInstanceOf[Feature[Geometry, GeoJsonProperties]]
@@ -576,9 +600,50 @@ object Main:
           )
         ),
       ),
-      datasetsVar.signal --> datasetsProcessor
+      datasetsVar.signal --> datasetsProcessor,
+      datasetsVar.signal --> leaderboardProcessor
     )
   end renderGlobalDashboard
+
+  private def renderLeaderboard(): Element =
+    val currentUser = stateVar.now().username
+
+    div(
+      h1(Page.Leaderboard.name),
+
+      // Empty state message
+      child.maybe <-- leaderboardData.signal.map { ranks =>
+        if (ranks.isEmpty) Some(div("No annotations yet.")) else None
+      },
+
+      // Leaderboard table (always renders, but empty if no data)
+      div(
+        div(cls("leaderboard-header"), span("Rank"), span("User"), span("Count"), span("%")),
+
+        // This is the key fix: children takes a Signal[List[Element]]
+        children <-- leaderboardData.signal.map { ranks =>
+          ranks.zipWithIndex.map { case (r, i) =>
+            val medal = i match {
+              case 0 => "🥇"
+              case 1 => "🥈"
+              case 2 => "🥉"
+              case _ => s"#${i + 1}"
+            }
+            val isMe = r.username == currentUser
+
+            div(
+              cls("leaderboard-row"),
+              if (isMe) cls("highlight") else "",
+              span(medal),
+              span(r.username),
+              span(r.count.toString),
+              span(f"${r.percentage}%.1f%%")
+            )
+          }
+        }
+      )
+    )
+  end renderLeaderboard
 
   // implicit conversion to leaflet.sync monkey patched version of Map
   implicit def map2sync(jq: Map_): SMap = jq.asInstanceOf[SMap]
@@ -602,7 +667,7 @@ object Main:
     val layers = split(1).split('&')(0).split(',')
     val params = split(1).split('&').tail.map(s => {val kv = s.split('='); (kv(0),kv(1))}).toMap
     val wmtsParams: Map[String,String] = defaultWMTS.keys.map(k => if(params.contains(k)) (k,params(k)) else (k,defaultWMTS(k))).toMap
-    console.info(s"addTileLayer with url $baseUrl, layers = ${layers.mkString(",")} and parameters ${params.mkString(",")}")
+    console.debug(s"addTileLayer with url $baseUrl, layers = ${layers.mkString(",")} and parameters ${params.mkString(",")}")
     if baseUrl.contains("wmts") then
       for (layer <- layers) {
         tileLayer(makeWMTS(baseUrl,Map("LAYER"->layer)++wmtsParams),
@@ -832,6 +897,7 @@ end Main
 enum Page(val name: String):
   case Home extends Page("Home")
   case Dashboard extends Page("Dashboard")
+  case Leaderboard extends Page("Leaderboard")
   case AnnotatedMaps extends Page("Annotated Maps")
   case Annotate extends Page("Annotate")
   case Login extends Page("Login")
@@ -857,6 +923,9 @@ final class Model {
   val annotationState: Var[AnnotationState] = Var(AnnotationState())
   val datasetSelected: Var[String] = Var("")
   val errorMessage: Var[Option[String]] = Var(None)
+
+  case class UserRank(username: String, count: Int, percentage: Double)
+  val leaderboardData: Var[List[UserRank]] = Var(List.empty)
 
   case class UserState(username: String = "",token: String = "",showErrors: Boolean = false,validated: Boolean = false) {
     def hasErrors: Boolean = usernameError.nonEmpty || tokenError.nonEmpty

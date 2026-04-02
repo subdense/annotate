@@ -139,3 +139,24 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
+.leaderboard-header, .leaderboard-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.leaderboard-header {
+  font-weight: bold;
+  background-color: #f9f9f9;
+}
+
+.leaderboard-row.highlight {
+  background-color: #e3f2fd; /* Light blue for current user */
+  font-weight: bold;
+}
+
+.leaderboard-row:hover {
+  background-color: #f0f0f0;
+}
