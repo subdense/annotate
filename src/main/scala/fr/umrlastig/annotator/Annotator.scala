@@ -254,51 +254,61 @@ object Main:
     JSON.parse(text).asInstanceOf[FeatureCollection[Geometry, GeoJsonProperties]]
 
   private def header(): Element =
-    errorMessage.signal.map {
-      case Some(msg) => div(cls("error-banner"), msg)
-      case None => div()
-    }
-    navTag(
-      menuTag(
-        li(
-          button(onClick --> { _ => currentPage.update(_ => Page.Home) }, Page.Home.name)
-        ),
-        li(
-          button(
-            onClick --> { _ => currentPage.update(_ => Page.Dashboard) },
-            disabled <-- datasetsVar.signal.map(_.isEmpty),
-            Page.Dashboard.name
+    div(
+      child.maybe <-- errorMessage.signal.map {
+        case Some(msg) =>
+          Some(
+            div(
+              cls("error-banner"),
+              //style("background-color: #ffebee; color: #c62828; padding: 10px; margin-bottom: 10px; border-radius: 4px; text-align: center;"),
+              msg,
+              button(onClick --> { _ => errorMessage.update(_ => None) }, "×")
+            )
+          )
+        case None => None
+      },
+      navTag(
+        menuTag(
+          li(
+            button(onClick --> { _ => currentPage.update(_ => Page.Home) }, Page.Home.name)
+          ),
+          li(
+            button(
+              onClick --> { _ => currentPage.update(_ => Page.Dashboard) },
+              disabled <-- datasetsVar.signal.map(_.isEmpty),
+              Page.Dashboard.name
+            )
+          ),
+          li(
+            button(
+              onClick --> { _ => currentPage.update(_ => Page.AnnotatedMaps) },
+              disabled <-- datasetsVar.signal.map(_.isEmpty),
+              Page.AnnotatedMaps.name
+            )
+          ),
+          li(
+            button(
+              onClick --> { _ => currentPage.update(_ => Page.Annotate) },
+              disabled <-- datasetsVar.signal.map(_.isEmpty).combineWithFn(annotationFinished.signal)((a, b)=>a||b),
+              Page.Annotate.name
+            )
+          ),
+          li(
+            button(
+              onClick --> { _ => logInOut() },
+              text <-- stateVar.signal.map(l=>if l.validated then "Logout" else Page.Login.name)
+            )
+          ),
+          li(
+            button(
+              onClick --> { _ => currentPage.update(_ => Page.Help) },
+              Page.Help.name
+            )
           )
         ),
-        li(
-          button(
-            onClick --> { _ => currentPage.update(_ => Page.AnnotatedMaps) },
-            disabled <-- datasetsVar.signal.map(_.isEmpty),
-            Page.AnnotatedMaps.name
-          )
-        ),
-        li(
-          button(
-            onClick --> { _ => currentPage.update(_ => Page.Annotate) },
-            disabled <-- datasetsVar.signal.map(_.isEmpty).combineWithFn(annotationFinished.signal)((a, b)=>a||b),
-            Page.Annotate.name
-          )
-        ),
-        li(
-          button(
-            onClick --> { _ => logInOut() },
-            text <-- stateVar.signal.map(l=>if l.validated then "Logout" else Page.Login.name)
-          )
-        ),
-        li(
-          button(
-            onClick --> { _ => currentPage.update(_ => Page.Help) },
-            Page.Help.name
-          )
-        )
-      ),
-      div(img(width("60px"),height("60px"),src("Loading_2.gif")),
-        display <-- stateVar.signal.map(_.validated).combineWithFn(datasetsVar.signal.map(_.isDefined))((a:Boolean,b:Boolean)=>if !a||b then "none" else "initial"))
+        div(img(width("60px"),height("60px"),src("Loading_2.gif")),
+          display <-- stateVar.signal.map(_.validated).combineWithFn(datasetsVar.signal.map(_.isDefined))((a:Boolean,b:Boolean)=>if !a||b then "none" else "initial"))
+      )
     )
   end header
 
@@ -483,8 +493,8 @@ object Main:
       val rightSampleMarkers: js.Array[Layer] = sampleMarkers(rightFC)
       val rightTaskMarkers: js.Array[Layer] = taskMarkers(rightFC)
       globalMapLeftVar.now().zip(globalMapRightVar.now()).foreach((left,right) =>
-        globalMapLeftControlVar.now().foreach(left.removeControl)
-        globalMapRightControlVar.now().foreach(right.removeControl)
+        globalMapLeftControl.foreach(left.removeControl)
+        globalMapRightControl.foreach(right.removeControl)
         updateMaps(left, right, lGeoJSON, rGeoJSON, Some(dataset._2), Some(dataset._3))
         def updateGroups(map: Map_, sampleMarkers: js.Array[Layer], taskMarkers: js.Array[Layer]):Control_.Layers =
           val sampleGroup = layerGroup(sampleMarkers).addTo(map)
@@ -500,9 +510,9 @@ object Main:
           }:Unit)
           controls
         val leftControls = updateGroups(left,leftSampleMarkers,leftTaskMarkers)
-        globalMapLeftControlVar.update(_ => Some(leftControls))
+        globalMapLeftControl = Some(leftControls)
         val rightControls = updateGroups(right,rightSampleMarkers,rightTaskMarkers)
-        globalMapRightControlVar.update(_ => Some(rightControls))
+        globalMapRightControl = Some(rightControls)
       )
     }
 
@@ -811,8 +821,9 @@ final class Model {
   val mapRightVar: Var[Option[Map_]] = Var(None)
   var globalMapLeftVar: Var[Option[Map_]] = Var(None)
   var globalMapRightVar: Var[Option[Map_]] = Var(None)
-  var globalMapLeftControlVar: Var[Option[Control_.Layers]] = Var(None)
-  var globalMapRightControlVar: Var[Option[Control_.Layers]] = Var(None)
+  // no need for Var in Controls
+  var globalMapLeftControl: Option[Control_.Layers] = None
+  var globalMapRightControl: Option[Control_.Layers] = None
   val annotationFinished: Var[Boolean] = Var(false)
   //case class AnnotationState(linkType: String = "", changeType: String = "", quality: Boolean = false, comment: String = "", step: Int = 0)
   case class AnnotationState(types: Seq[String] = Seq.empty[String], quality: Boolean = false, comment: String = "", step: Int = 0)
