@@ -3,8 +3,51 @@ package fr.umrlastig.annotator
 import scala.scalajs.js
 import scala.scalajs.js.JSConverters.*
 
+@js.native
+trait DatasetList extends js.Object {
+  var datasets: js.Array[String] = js.native
+}
+@js.native
+trait Dataset extends js.Object {
+  var dates: js.Array[String] = js.native
+  var wmts: js.Array[String] = js.native
+  var samples: js.Array[String] = js.native
+}
+@js.native
+trait Annotation extends js.Object {
+  var username: String = js.native
+  var types: js.Array[String] = js.native
+  var quality: Boolean = js.native
+  var comment: String = js.native
+}
+@js.native
+trait Task extends js.Object {
+  var task: String = js.native
+  var annotations: js.Array[Annotation] = js.native
+}
+@js.native
+trait Sample extends js.Object {
+  var tasks: js.Array[Task] = js.native
+}
+@js.native
+trait Dataset_ extends js.Object {
+  var dates: js.Array[String] = js.native
+  var wmts: js.Array[String] = js.native
+  var tasks: js.Array[String] = js.native
+}
+@js.native
+trait Task_ extends js.Object {
+  var dataset: String = js.native
+  var dates: js.Array[String] = js.native
+  var wmts: js.Array[String] = js.native
+  var sample: String = js.native
+  var task: Task = js.native
+  var modalities: js.Array[js.Array[String]] = js.native
+}
+
 object Types {
   // Helper to create a new JS object matching the trait
+  // TODO find a better alternative? it is kind of ugly
   def newAnnotation(): Annotation =
     js.Dynamic.literal(
       username = "",

@@ -20,6 +20,24 @@ sbt fullOptJS
 npm run build
 ```
 
+## cleanup script
+
+To clean up a messy repo with duplicate annotations, use the dedicated script.
+It uses environment variables *REPO_URL* and *GITHUB_TOKEN*.
+It has two modes: dry-run and standard. The *dry-run* process simulates the process but does not push the results.
+```shell
+export REPO_URL="https://github.com/umrlastig/annotation-example.git"
+export GITHUB_TOKEN="ghp_..."
+sbt "backend/run --dry-run"
+```
+To actually commit and push the clean repo, use:
+```shell
+export REPO_URL="https://github.com/umrlastig/annotation-example.git"
+export GITHUB_TOKEN="ghp_..."
+sbt "backend/run"
+```
+
+
 ## TODO
 - sorting of objects for annotation?
 

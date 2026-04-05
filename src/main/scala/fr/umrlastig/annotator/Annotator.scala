@@ -2,23 +2,14 @@ package fr.umrlastig.annotator
 
 import com.raquo.laminar.api.L.{*, given}
 import com.raquo.laminar.nodes.ReactiveHtmlElement
+import fr.umrlastig.annotator.GitOps.{config, gitPull, gitPush, cloneData, read, write}
+import fr.umrlastig.annotator.Utils.getColor
+import fr.umrlastig.annotator.Config.{leftLeftStyle, rightRightStyle}
 import org.scalajs.dom
-import org.scalajs.dom.{HTMLDivElement, HTMLElement}
-import org.scalajs.dom.console
 import org.scalajs.dom.window.alert
-import subdense.BuildInfo
+import org.scalajs.dom.{HTMLDivElement, HTMLElement, console}
 import typings.geojson.mod.*
-import typings.gitEssentials.clientsFsIndexedDbFsClientMod.IndexedDbFsClient
-import typings.gitEssentials.clientsHttpWebHttpClientMod.makeWebHttpClient
-import typings.gitEssentials.distTypesApiAddMod.AddParams
-import typings.gitEssentials.distTypesApiCommitMod.CommitParams
-import typings.gitEssentials.distTypesApiPullMod.PullParams
-import typings.gitEssentials.distTypesApiPushMod.{PushParams, PushResult}
-import typings.gitEssentials.distTypesModelsAuthMod.Auth
-import typings.gitEssentials.distTypesModelsAuthorMod.Author
-import typings.gitEssentials.distTypesModelsFsClientMod.{EncodingOptions, RmOptions}
-import typings.gitEssentials.gitEssentialsStrings.utf8
-import typings.gitEssentials.{distTypesApiCloneMod as clone, distTypesClientsHttpWebHttpClientMod as whco, mod as essentials}
+import typings.gitEssentials.distTypesApiPushMod.PushResult
 import typings.leaflet.mod as L
 import typings.leaflet.mod.*
 import typings.leaflet.mod.PathOptions.MutableBuilder
@@ -31,209 +22,7 @@ import scala.collection.mutable
 import scala.language.{implicitConversions, postfixOps}
 import scala.scalajs.js
 import scala.scalajs.js.JSConverters.*
-import scala.scalajs.js.URIUtils.encodeURIComponent
 import scala.scalajs.js.{JSON, Promise}
-
-val leftRightStyle = PathOptions().setColor("#ff7800").setWeight(5).setOpacity(0.25).setDashArray("20 20").setDashOffset("10").setFill(false)
-val leftLeftStyle = PathOptions().setColor("#78ff00").setWeight(2).setOpacity(0.8).setFill(false)
-val rightRightStyle = PathOptions().setColor("#ff7800").setWeight(2).setOpacity(0.8).setFill(false)
-val rightLeftStyle = PathOptions().setColor("#78ff00").setWeight(5).setOpacity(0.25).setDashArray("20 20").setDashOffset("10").setFill(false)
-
-val rnd = new scala.util.Random(42)
-def toHexString(color:(Double,Double,Double)): String = {
-  val (r,g,b) = ((color._1*255).floor.intValue,(color._2*255).floor.intValue,(color._3*255).floor.intValue)
-  f"#$r%02x$g%02x$b%02x"
-}
-// input: h in [0,360] and s,v in [0,1] - output: r,g,b in [0,1]
-def hsl2rgb (h: Double, s: Double, l:Double) =
-  val a = s * Math.min(l, 1 - l)
-  def f(n:Int) =
-    val k = (n + h / 30) % 12
-    l - a * Math.max(Seq(k - 3, 9 - k, 1).min, -1)
-  (f(0),f(8),f(4))
-
-def getColor = toHexString(hsl2rgb(rnd.nextDouble()*360,0.8,0.5))
-
-@js.native
-trait DatasetList extends js.Object {
-  var datasets: js.Array[String] = js.native
-}
-@js.native
-trait Dataset extends js.Object {
-  var dates: js.Array[String] = js.native
-  var wmts: js.Array[String] = js.native
-  var samples: js.Array[String] = js.native
-}
-@js.native
-trait Annotation extends js.Object {
-  var username: String = js.native
-  var types: js.Array[String] = js.native
-  var quality: Boolean = js.native
-  var comment: String = js.native
-}
-@js.native
-trait Task extends js.Object {
-  var task: String = js.native
-  var annotations: js.Array[Annotation] = js.native
-}
-@js.native
-trait Sample extends js.Object {
-  var tasks: js.Array[Task] = js.native
-}
-@js.native
-trait Dataset_ extends js.Object {
-  var dates: js.Array[String] = js.native
-  var wmts: js.Array[String] = js.native
-  var tasks: js.Array[String] = js.native
-}
-@js.native
-trait Task_ extends js.Object {
-  var dataset: String = js.native
-  var dates: js.Array[String] = js.native
-  var wmts: js.Array[String] = js.native
-  var sample: String = js.native
-  var task: Task = js.native
-  var modalities: js.Array[js.Array[String]] = js.native
-}
-@js.native
-trait Config extends js.Object {
-  var url: String = js.native
-  var dir: String = js.native
-  var fsname: String = js.native
-  var useIsomorphicProxy: String = js.native
-  var corsProxyIsomorphic: String = js.native
-  var corsProxyDefault: String = js.native
-  var annotationSetup: js.Object = js.native
-}
-
-// read the config from config.json file, added from CI of the instantiation repo
-// TODO default config from resources to deploy even if not instantiated?
-val config = JSON.parse(BuildInfo.configJson).asInstanceOf[Config]
-
-val url = config.url
-val dir = config.dir
-val fsName = config.fsname
-val useIsomorphicProxy = config.useIsomorphicProxy.toBoolean
-val corsProxyIsomorphic = config.corsProxyIsomorphic
-val corsProxyDefault = config.corsProxyDefault
-val annotationSetup = config.annotationSetup
-
-val client = IndexedDbFsClient(fsName)
-
-def read[T](file: String, parse: Boolean = true): Promise[T] = client.readFile(file, EncodingOptions().setEncoding(utf8))
-  .`then`(content => (if parse then JSON.parse(content.asInstanceOf[String]) else content).asInstanceOf[T])
-
-def write(file: String, content: String): Promise[Unit] = client.writeFile(file, content, EncodingOptions().setEncoding(utf8))
-
-val proxy = if useIsomorphicProxy then corsProxyIsomorphic else corsProxyDefault
-val http_ = """^https?:\/\/"""
-def transform(url: String, b: js.UndefOr[Boolean]) = if useIsomorphicProxy then s"$proxy/${url.replaceAll(http_, "")}" else s"$proxy?url=${encodeURIComponent(url)}"
-
-// TODO add branch option? (always work on default branch when cloning, an other config may be useful?)
-def cloneData(token: String): Promise[js.Array[Task_]] =
-  client.rm(dir, RmOptions().setRecursive(true).setForce(true))
-    .`catch`(err => {
-      console.error("Cleanup failed, continuing anyway?", err)
-      js.Promise.reject(err)
-    })
-    .`then`[Unit](_ =>
-      essentials.clone_(clone.CloneParams(
-        dir = dir,
-        fs = client,
-        http = makeWebHttpClient(whco.WebHttpClientOptions().setTransformRequestUrl(transform)),
-        url = url)
-      .setOnAuth((url, auth) => auth.setUsername(token))
-      ))
-    .`catch`(err => {
-      console.error("Git clone failed", err)
-      js.Promise.reject(err)
-    })
-    .`then`[DatasetList](_=> read[DatasetList](s"$dir/datasets.json"))
-    .`catch`(err => {
-      console.error("Failed to read datasets.json", err)
-      js.Promise.reject(err)
-    })
-    .`then`(content=>
-      Promise.all(content.datasets.map(datasetName => read[Dataset](s"$dir/$datasetName")
-        .`catch`(err => {
-          console.error(s"Missing dataset: $datasetName", err)
-          js.Promise.reject(err)
-        })
-        .`then`(d => (datasetName, d)))))
-    .`then`(datasets=>
-        Promise.all(datasets.asInstanceOf[js.Array[(String, Dataset)]].flatMap((datasetName, dataset) =>
-          dataset.samples.map(sample => read[Sample](s"$dir/$sample")
-            .`catch`(err => {
-              console.error(s"Error reading sample: $sample", err)
-              js.Promise.reject(err)
-            })
-            .`then`(s =>
-              console.info(s"Annotation setup from static config : ${js.Object.keys(annotationSetup).toSeq}")
-              console.info(s"Config for dataset $datasetName : ${annotationSetup.asInstanceOf[js.Dynamic].selectDynamic(datasetName).asInstanceOf[js.Array[js.Array[String]]]}")
-              js.Dynamic.literal(name = datasetName, dates = dataset.dates, wmts = dataset.wmts, sampleFile = sample, sample = s,
-                modalities = annotationSetup.asInstanceOf[js.Dynamic].selectDynamic(datasetName))
-            )
-          )
-        ))
-    )
-    .`then`(samples =>
-        val tasks = samples.asInstanceOf[js.Array[js.Dynamic]].flatMap(s =>
-          val modalities = s.modalities.asInstanceOf[js.Array[js.Array[String]]]
-          console.info(s"Setting up sample with modalities : $modalities ; dims : ${modalities.toSeq.size} x ${modalities(0).toSeq.size}")
-          s.sample.asInstanceOf[Sample].tasks.map(t =>
-            val task = Types.newTask_()
-            task.dataset = s.name.asInstanceOf[String]
-            task.dates = s.dates.asInstanceOf[js.Array[String]]
-            task.wmts = s.wmts.asInstanceOf[js.Array[String]]
-            task.sample = s.sampleFile.asInstanceOf[String]
-            task.task = t
-            task.modalities = modalities
-            task
-          )
-        )
-        tasks
-      )
-
-def gitPush(username: String, token: String, file: String, message: String): Promise[PushResult] =
-  console.info(s"start add $file with ${transform(url, js.undefined)}")
-
-  essentials.add(AddParams(dir=dir, filepath = file, fs = client))
-    .`catch`(err => {
-      console.error(s"Failed to add $file", err)
-      js.Promise.reject(err)
-    })
-    .`then`[String](_=> {
-      console.info(s"start commit $message with ${transform(url, js.undefined)}")
-      essentials.commit(CommitParams(dir = dir, fs = client, message = message).setAuthor(Author(username)))
-    })
-    .`catch`(err => {
-      console.error("Commit failed", err)
-      js.Promise.reject(err)
-    })
-    .`then`[PushResult](c=> {
-      console.info(s"start push")
-      essentials.push(
-        PushParams(dir = dir, fs = client, http = makeWebHttpClient(whco.WebHttpClientOptions().setTransformRequestUrl(transform)))
-          .setUrl(url)
-          .setOnAuth((_, _) => Auth().setUsername(token))
-      )
-    })
-    .`catch`(err => {
-      console.error("Push failed! Data might be lost.", err)
-      js.Promise.reject(err)
-    })
-
-def gitPull(username: String, token: String): Promise[Unit] =
-  essentials.pull(
-      PullParams(dir = dir, fs = client, http = makeWebHttpClient(whco.WebHttpClientOptions().setTransformRequestUrl(transform)))
-        .setUrl(url)
-        .setOnAuth((_, auth) => auth.setUsername(token))
-        .setAuthor(Author(username))
-    )
-    .`catch`(err => {
-      console.error("Pull failed:", err)
-      js.Promise.reject(err)
-    })
 
 @main
 def Annotator(): Unit =
@@ -419,7 +208,7 @@ object Main:
   private def renderGlobalDashboard(): Element =
     def taskFeatures(dateLeft: String, dateRight: String)(task: Task_): Promise[(js.Array[Feature[Geometry,GeoJsonProperties]],js.Array[Feature[Geometry,GeoJsonProperties]])] =
       console.debug("taskFile: "+task.task.task)
-      read[String](s"$dir/${task.task.task}", false).`then`(content =>
+      read[String](s"${config.dir}/${task.task.task}", false).`then`(content =>
         val newTask = content
         val features = asFeatureCollection(newTask).features
         features.foreach(f=>
@@ -464,31 +253,6 @@ object Main:
         }
     }
     datasetsVar.signal --> datasetsProcessor
-    val leaderboardProcessor = Observer[Option[js.Array[Task_]]] {
-      case None =>
-        console.info("leaderboardProcessor with no task")
-        leaderboardData.update(_ => List.empty)
-      case Some(datasets) =>
-        console.info(s"leaderboardProcessor with ${datasets.size} datasets")
-        // Get all annotations from all tasks
-        val allAnnotations = datasets.flatMap(_.task.annotations)
-        // Count by username
-        val counts = mutable.Map[String, Int]()
-        allAnnotations.foreach { ann =>
-          val user = ann.username
-          counts(user) = counts.getOrElse(user, 0) + 1
-        }
-        // Calculate total for percentage
-        val total = counts.values.sum
-        val totalDouble = if (total == 0) 1.0 else total.toDouble
-        // Convert to list and sort descending
-        val ranked = counts.toList
-          .map { case (user, count) => UserRank(user, count, (count / totalDouble) * 100) }
-          .sortBy(-_.count) // Sort descending by count
-        leaderboardData.update(_ => ranked)
-    }
-
-    datasetsVar.signal --> leaderboardProcessor
 
     def updateGlobalMap(dataset: (String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])): Unit = {
       console.debug(s"update global Maps for dataset ${dataset._1}")
@@ -601,12 +365,34 @@ object Main:
         ),
       ),
       datasetsVar.signal --> datasetsProcessor,
-      datasetsVar.signal --> leaderboardProcessor
     )
   end renderGlobalDashboard
 
   private def renderLeaderboard(): Element =
     val currentUser = stateVar.now().username
+    val leaderboardProcessor = Observer[Option[js.Array[Task_]]] {
+      case None =>
+        console.info("leaderboardProcessor with no task")
+        leaderboardData.update(_ => List.empty)
+      case Some(datasets) =>
+        console.info(s"leaderboardProcessor with ${datasets.size} datasets")
+        // Get all annotations from all tasks
+        val allAnnotations = datasets.flatMap(_.task.annotations)
+        // Count by username
+        val counts = mutable.Map[String, Int]()
+        allAnnotations.foreach { ann =>
+          val user = ann.username
+          counts(user) = counts.getOrElse(user, 0) + 1
+        }
+        // Calculate total for percentage
+        val total = counts.values.sum
+        val totalDouble = if (total == 0) 1.0 else total.toDouble
+        // Convert to list and sort descending
+        val ranked = counts.toList
+          .map { case (user, count) => UserRank(user, count, (count / totalDouble) * 100) }
+          .sortBy(-_.count) // Sort descending by count
+        leaderboardData.update(_ => ranked)
+    }
 
     div(
       h1(Page.Leaderboard.name),
@@ -641,7 +427,8 @@ object Main:
             )
           }
         }
-      )
+      ),
+      datasetsVar.signal --> leaderboardProcessor
     )
   end renderLeaderboard
 
@@ -759,7 +546,7 @@ object Main:
     val taskFile = currentTaskState.taskFile
     gitPull(currentUserState.username, currentUserState.token)
       .`then`(_ => {
-        read[Sample](s"$dir/$sampleFile").`then`(content => {
+        read[Sample](s"${config.dir}/$sampleFile").`then`(content => {
           val task = content.tasks.find(_.task == taskFile).getOrElse(
             throw new NoSuchElementException(s"Task $taskFile not found in $sampleFile")
           )
@@ -771,7 +558,7 @@ object Main:
           annotation.quality = currentAnnotationState.quality
           annotation.comment = currentAnnotationState.comment
           task.annotations.push(annotation)
-          write(s"$dir/$sampleFile", JSON.stringify(content, space = 2))
+          write(s"${config.dir}/$sampleFile", JSON.stringify(content, space = 2))
             .`then`(_ => gitPush(currentUserState.username, currentUserState.token, sampleFile, s"Update $taskFile for ${annotation.username}"))
             .`then`(_ => {
               datasetsVar.update(datasets => datasets.map(_.map {
@@ -968,19 +755,24 @@ final class Model {
       }
       else
         taskState.update(state => state.copy(
-          date1 = currentTask_.dates(0),date2=currentTask_.dates(1),
-          wms1=currentTask_.wmts(0), wms2=currentTask_.wmts(1),
-          sampleFile = currentTask_.sample, taskFile=currentTask_.task.task,
+          date1 = currentTask_.dates(0), date2 = currentTask_.dates(1),
+          wms1 = currentTask_.wmts(0), wms2 = currentTask_.wmts(1),
+          sampleFile = currentTask_.sample, taskFile = currentTask_.task.task,
           modalities = currentTask_.modalities.map(_.toSeq).toSeq
         ))
-        annotationState.update(_=>AnnotationState())
-        read[String](s"$dir/${currentTask_.task.task}", false).`then`(content =>
-          val newTask = content
-          val left = parseGeoJSONAndFilter(newTask, currentTask_.dates(0)).setStyle(leftLeftStyle)
-          val right = parseGeoJSONAndFilter(newTask, currentTask_.dates(1)).setStyle(rightRightStyle)
-          geoJSONUpdate(left, right)
-          true
-        )
+        annotationState.update(_ => AnnotationState())
+        read[String](s"${config.dir}/${currentTask_.task.task}", false)
+          .`then`(content =>
+            val newTask = content
+            val left = parseGeoJSONAndFilter(newTask, currentTask_.dates(0)).setStyle(leftLeftStyle)
+            val right = parseGeoJSONAndFilter(newTask, currentTask_.dates(1)).setStyle(rightRightStyle)
+            geoJSONUpdate(left, right)
+            true
+          )
+          .`catch`(err =>
+            console.error(s"Reading failed for: ${config.dir}/${currentTask_.task.task}", err)
+            false
+          )
     else {
       console.info("No task left")
       Promise.resolve(false)
@@ -993,18 +785,21 @@ final class Model {
     } else {
       dom.window.localStorage.setItem("token", state.token)
       dom.window.localStorage.setItem("username", state.username)
-      stateVar.update(_.copy(validated = true))
-      currentPage.update(_ => Page.Home)
       cloneData(state.token)
         .`then`(datasets =>
           datasetsVar.update(_ => Some(datasets))
           iterator = Some(datasets.iterator)
+          stateVar.update(_.copy(validated = true))
+          currentPage.update(_ => Page.Home)
           nextFeature()
         )
         .`catch`(err => {
-          errorMessage.update(_ => Some(s"Failed to load data: ${err.toString}"))
+          console.error("Git clone failed!", err)
+          errorMessage.update(_ => Some(s"Failed to clone data: ${err.toString}"))
           stateVar.update(_.copy(validated = false))
-          currentPage.update(_ => Page.Login)
+          // Show a notification to the user
+          alert("Failed to clone data. Check console for details.")
+          //currentPage.update(_ => Page.Login)
         })
     }
   }
