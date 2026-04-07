@@ -17,6 +17,7 @@ import typings.gitEssentials.distTypesModelsAuthorMod.Author
 import scala.scalajs.js
 import scala.scalajs.js.URIUtils.encodeURIComponent
 import scala.scalajs.js.{JSON, Promise}
+import scala.util.Random
 
 object GitOps {
   // read the config from config.json file, added from CI of the instantiation repo
@@ -39,7 +40,7 @@ object GitOps {
   def write(file: String, content: String): Promise[Unit] = client.writeFile(file, content, EncodingOptions().setEncoding(utf8))
 
   // TODO add branch option? (always work on default branch when cloning, an other config may be useful?)
-  def cloneData(token: String): Promise[js.Array[Task_]] =
+  def cloneData(token: String, rng: Random): Promise[js.Array[Task_]] =
     client.rm(config.dir, RmOptions().setRecursive(true).setForce(true))
       .`catch`(err => {
         console.error("Cleanup failed, continuing anyway?", err)
@@ -91,7 +92,8 @@ object GitOps {
         samples.asInstanceOf[js.Array[js.Dynamic]].flatMap(s =>
           val modalities = s.modalities.asInstanceOf[js.Array[js.Array[String]]]
           console.info(s"Setting up sample with modalities : $modalities ; dims : ${modalities.toSeq.size} x ${modalities(0).toSeq.size}")
-          s.sample.asInstanceOf[Sample].tasks.map(t =>
+          val tasks = rng.shuffle(s.sample.asInstanceOf[Sample].tasks)
+          tasks.map(t =>
             val task = Types.newTask_()
             task.dataset = s.name.asInstanceOf[String]
             task.dates = s.dates.asInstanceOf[js.Array[String]]

@@ -2,7 +2,7 @@ package fr.umrlastig.annotator
 
 import com.raquo.laminar.api.L.{*, given}
 import com.raquo.laminar.nodes.ReactiveHtmlElement
-import fr.umrlastig.annotator.GitOps.{config, gitPull, gitPush, cloneData, read, write}
+import fr.umrlastig.annotator.GitOps.{cloneData, config, gitPull, gitPush, read, write}
 import fr.umrlastig.annotator.Utils.getColor
 import fr.umrlastig.annotator.Config.{leftLeftStyle, rightRightStyle}
 import org.scalajs.dom
@@ -23,6 +23,7 @@ import scala.language.{implicitConversions, postfixOps}
 import scala.scalajs.js
 import scala.scalajs.js.JSConverters.*
 import scala.scalajs.js.{JSON, Promise}
+import scala.util.Random
 
 @main
 def Annotator(): Unit =
@@ -785,7 +786,8 @@ final class Model {
     } else {
       dom.window.localStorage.setItem("token", state.token)
       dom.window.localStorage.setItem("username", state.username)
-      cloneData(state.token)
+      val rng = new Random(state.username.hashCode)
+      cloneData(state.token, rng)
         .`then`(datasets =>
           datasetsVar.update(_ => Some(datasets))
           iterator = Some(datasets.iterator)
