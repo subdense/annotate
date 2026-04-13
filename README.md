@@ -32,9 +32,17 @@ sbt "backend/run --dry-run"
 ```
 To actually commit and push the clean repo, use:
 ```shell
-export REPO_URL="https://github.com/umrlastig/annotation-example.git"
-export GITHUB_TOKEN="ghp_..."
 sbt "backend/run"
+```
+
+You can also activate the removal of small features (<10 m2):
+```shell
+sbt "backend/run --filter-small"
+```
+
+You can also use the dirty mode to keep the tmp directory (for debug use):
+```shell
+sbt "backend/run --dry-run --filter-small --dirty"
 ```
 
 

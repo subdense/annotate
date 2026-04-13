@@ -50,17 +50,31 @@ lazy val annotator = project.in(file("."))
   )
 
 val jgitVersion = "7.6.0.202603022253-r"
+val gtVersion = "34.3"
+val circeVersion = "0.14.15"
 // backend scripts
 lazy val backend = (project in file("backend"))
   .settings(
     name := "annotator-backend",
     scalaVersion := "3.3.1", // Match your main project version
+    resolvers ++= Seq(
+      "osgeo" at "https://repo.osgeo.org/repository/release"
+    ),
     libraryDependencies ++= Seq(
       // JSON parsing
       "com.lihaoyi" %% "upickle" % upickleVersion,
       // Git operations
       "org.eclipse.jgit" % "org.eclipse.jgit" % jgitVersion,
       // SSH support for JGit (optional, but good for HTTPS with tokens)
-      "org.eclipse.jgit" % "org.eclipse.jgit.ssh.apache" % jgitVersion
+      "org.eclipse.jgit" % "org.eclipse.jgit.ssh.apache" % jgitVersion,
+      // jts io for geojson parsing
+      "org.locationtech.jts.io" % "jts-io-common" % "1.20.0",
+      "org.geotools" % "gt-main" % gtVersion,
+      "org.geotools" % "gt-geojson-store" % gtVersion,
+      // Circe for json writing
+      "io.circe" %% "circe-core" % circeVersion,
+      "io.circe" %% "circe-generic" % circeVersion,
+      "io.circe" %% "circe-parser" % circeVersion,
+      "io.circe" %% "circe-jawn" % circeVersion,
     )
   )
