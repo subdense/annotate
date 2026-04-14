@@ -208,7 +208,7 @@ object Main:
 
   private def renderGlobalDashboard(): Element =
     def taskFeatures(dateLeft: String, dateRight: String)(task: Task_): Promise[(js.Array[Feature[Geometry,GeoJsonProperties]],js.Array[Feature[Geometry,GeoJsonProperties]])] =
-      console.debug("taskFile: "+task.task.task)
+      //console.debug("taskFile: "+task.task.task)
       read[String](s"${config.dir}/${task.task.task}", false).`then`(content =>
         val newTask = content
         val features = asFeatureCollection(newTask).features
@@ -256,7 +256,7 @@ object Main:
     datasetsVar.signal --> datasetsProcessor
 
     def updateGlobalMap(dataset: (String,String,String,GeoJSON__[Geometry,GeoJsonProperties],GeoJSON__[Geometry,GeoJsonProperties])): Unit = {
-      console.debug(s"update global Maps for dataset ${dataset._1}")
+      //console.debug(s"update global Maps for dataset ${dataset._1}")
       val colorMap = mutable.Map[String, String]()
       def styled(geojson: GeoJSON__[Geometry,GeoJsonProperties]):GeoJSON__[Geometry,GeoJsonProperties] = geojson.setStyle(f =>
         val feature = f.asInstanceOf[Feature[Geometry, GeoJsonProperties]]
@@ -455,7 +455,7 @@ object Main:
     val layers = split(1).split('&')(0).split(',')
     val params = split(1).split('&').tail.map(s => {val kv = s.split('='); (kv(0),kv(1))}).toMap
     val wmtsParams: Map[String,String] = defaultWMTS.keys.map(k => if(params.contains(k)) (k,params(k)) else (k,defaultWMTS(k))).toMap
-    console.debug(s"addTileLayer with url $baseUrl, layers = ${layers.mkString(",")} and parameters ${params.mkString(",")}")
+    //console.debug(s"addTileLayer with url $baseUrl, layers = ${layers.mkString(",")} and parameters ${params.mkString(",")}")
     if baseUrl.contains("wmts") then
       for (layer <- layers) {
         tileLayer(makeWMTS(baseUrl,Map("LAYER"->layer)++wmtsParams),
@@ -492,7 +492,7 @@ object Main:
   // TODO index is always < max size by use but not secure
   private def nextButton(index: Int): Element =
     button(">",backgroundColor := "Orchid",
-      disabled <-- annotationState.signal.map(_.types(index)).map(_.isEmpty),
+      disabled <-- annotationState.signal.map{s => if (s.types.isEmpty) "" else s.types(index)}.map(_.isEmpty),
       onClick --> { _ => annotationState.update(_.copy(step=index+1)) }
     )
 
