@@ -29,12 +29,12 @@ trait Task extends js.Object {
 trait Sample extends js.Object {
   var tasks: js.Array[Task] = js.native
 }
-@js.native
+/*@js.native
 trait Dataset_ extends js.Object {
   var dates: js.Array[String] = js.native
   var wmts: js.Array[String] = js.native
   var tasks: js.Array[String] = js.native
-}
+}*/
 @js.native
 trait Task_ extends js.Object {
   var dataset: String = js.native
