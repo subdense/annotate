@@ -54,6 +54,8 @@ object GitOps {
             http = makeWebHttpClient(whco.WebHttpClientOptions().setTransformRequestUrl(transform)),
             url = config.url)
           .setOnAuth((url, auth) => auth.setUsername(token))
+          .setDepth(1)
+          .setSingleBranch(true)
         )
       })
       .`catch`(err => {
