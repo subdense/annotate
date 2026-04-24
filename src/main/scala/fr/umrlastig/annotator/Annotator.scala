@@ -138,7 +138,7 @@ object Main:
   private def renderHome(): Element =
     div(
       h1(Page.Home.name),
-      // TODO load from generic description file (md, html etc.)
+      // TODO load from generic description file (md, Html etc.)
       p("This is an annotation app for the SUBDENSE project"),
       div(
         h2("How does this work?"),
@@ -352,11 +352,14 @@ object Main:
         datasetVar.signal.combineWith(datasetSelected.signal) --> mapUpdater,
         // Wait for the component to be mounted before adding the leaflet and syncs
         onMountCallback(ctx =>
+          syncMaps("globalMapLeft", "globalMapRight", globalMapLeftVar, globalMapRightVar)
+/*
           val (l,r) = (map("globalMapLeft",true),map("globalMapRight",false))
           l.sync(r, SyncMapOptions())
           r.sync(l, SyncMapOptions())
           globalMapLeftVar.update(_ => Some(l))
           globalMapRightVar.update(_ => Some(r))
+*/
         ),
         div(idAttr("global-container"), cls("my-container"),
           div(idAttr("globalMapLeft"), cls("mapLeft"), cls("map"),
@@ -440,6 +443,14 @@ object Main:
     console.info("create map")
     L.map(name, MapOptions().setAttributionControl(!left).setZoomControl(left)).setView(LatLngLiteral(48.8, 2.3), zoom = 18)
 
+  private def syncMaps(leftName: String, rightName: String, leftVar: Var[Option[Map_]], rightVar: Var[Option[Map_]]): (Map_, Map_) =
+    val (l, r) = (map(leftName, true), map(rightName, false))
+    l.sync(r, SyncMapOptions())
+    r.sync(l, SyncMapOptions())
+    leftVar.update(_ => Some(l))
+    rightVar.update(_ => Some(r))
+    (l, r)
+
   private def addTileLayer(map: Map_)(wmts:String): Unit =
     val defaultWMTS = Map("REQUEST" -> "GetTile", "SERVICE" -> "WMTS", "VERSION" -> "1.0.0", "STYLE" -> "normal", "TILEMATRIXSET" -> "PM", "FORMAT" -> "image/jpeg", "TILEMATRIX" -> "{z}", "TILEROW" -> "{y}", "TILECOL" -> "{x}")
 
@@ -455,7 +466,6 @@ object Main:
     val layers = split(1).split('&')(0).split(',')
     val params = split(1).split('&').tail.map(s => {val kv = s.split('='); (kv(0),kv(1))}).toMap
     val wmtsParams: Map[String,String] = defaultWMTS.keys.map(k => if(params.contains(k)) (k,params(k)) else (k,defaultWMTS(k))).toMap
-    //console.debug(s"addTileLayer with url $baseUrl, layers = ${layers.mkString(",")} and parameters ${params.mkString(",")}")
     if baseUrl.contains("wmts") then
       for (layer <- layers) {
         tileLayer(makeWMTS(baseUrl,Map("LAYER"->layer)++wmtsParams),
@@ -520,12 +530,14 @@ object Main:
     div(
       // Wait for the component to be mounted before adding the leaflet and syncs
       onMountCallback(ctx =>
+        val (l, r) = syncMaps("mapLeft", "mapRight", mapLeftVar, mapRightVar)
+/*
         val (l, r) = (map("mapLeft", true), map("mapRight", false))
         l.sync(r, SyncMapOptions())
         r.sync(l, SyncMapOptions())
         mapLeftVar.update(_ => Some(l))
         mapRightVar.update(_ => Some(r))
-
+*/
         updateMaps(l,r,geoJSON.now().get._1,geoJSON.now().get._2,Some(taskState.now().wms1),Some(taskState.now().wms2))
       ),
       div(idAttr("my-container"), cls("my-container"),
@@ -787,11 +799,11 @@ final class Model {
       dom.window.localStorage.setItem("token", state.token)
       dom.window.localStorage.setItem("username", state.username)
       val rng = new Random(state.username.hashCode)
+      stateVar.update(s => s.copy(validated = true))
       cloneData(state.token, rng)
         .`then`(datasets =>
           datasetsVar.update(_ => Some(datasets))
           iterator = Some(datasets.iterator)
-          stateVar.update(_.copy(validated = true))
           currentPage.update(_ => Page.Home)
           nextFeature()
         )
