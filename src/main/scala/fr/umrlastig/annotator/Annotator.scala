@@ -179,7 +179,7 @@ object Main:
       )
     }
     def username = stateVar.now().username
-    val signal = datasetsVar.signal.map(datasetsOption=>datasetsOption.map(datasets=>datasets.toArray
+    val userSignal = datasetsVar.signal.map(datasetsOption=>datasetsOption.map(datasets=>datasets.toArray
       .groupBy(_.dataset)
       .map((d,array)=>
         DatasetR(d.split("/").head,array.groupBy(_.sample).map((s,array)=>
@@ -187,11 +187,20 @@ object Main:
         ).toList.sortBy(_.name))
       ).toList
     ).get)
+    val allUsersSignal = datasetsVar.signal.map(datasetsOption=>datasetsOption.map(datasets=>datasets.toArray
+      .groupBy(_.dataset)
+      .map((d,array)=>
+        DatasetR(d.split("/").head,array.groupBy(_.sample).map((s,array)=>
+          SampleR(s.split("/").take(2).mkString("-"),array.length,array.count(_.task.annotations.length > 0))
+        ).toList.sortBy(_.name))
+      ).toList
+    ).get)
     div(
       h1(Page.Dashboard.name),
       h2(s"User: $username"),
-      children <-- signal.split(_.name)(newRenderDataset)
-
+      children <-- userSignal.split(_.name)(newRenderDataset),
+      h2(s"All users"),
+      children <-- allUsersSignal.split(_.name)(newRenderDataset)
     )
   end renderDashboard
 
