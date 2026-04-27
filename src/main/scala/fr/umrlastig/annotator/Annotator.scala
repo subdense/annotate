@@ -53,15 +53,10 @@ final class Model {
   private var iterator: Option[Iterator[Task_]] = None
   // map variables
   val annotationMapVar: Var[Option[(Map_, Map_)]] = Var(None)
-  var globalMapVar: Var[Option[(Map_, Map_)]] = Var(None)
-  // no need for Var in Controls
-  var globalMapLeftControl: Option[Control_.Layers] = None
-  var globalMapRightControl: Option[Control_.Layers] = None
   val annotationFinished: Var[Boolean] = Var(false)
   //case class AnnotationState(linkType: String = "", changeType: String = "", quality: Boolean = false, comment: String = "", step: Int = 0)
   case class AnnotationState(types: Seq[String] = Seq.empty[String], quality: Boolean = false, comment: String = "", step: Int = 0)
   val annotationState: Var[AnnotationState] = Var(AnnotationState())
-  val datasetSelected: Var[String] = Var("")
   val errorMessage: Var[Option[String]] = Var(None)
   val currentMessage: Var[Option[String]] = Var(None)
 
@@ -96,8 +91,10 @@ final class Model {
 
     if iterator.isDefined && iterator.get.hasNext then
       val currentTask_ = iterator.get.next()
-      if currentTask_.task.annotations.exists(_.username == stateVar.now().username) then {
-        console.info(s"Already annotated by ${stateVar.now().username}")
+      // if the user already annotated or the max number of annotations is reached, we ignore the task
+      if currentTask_.task.annotations.exists(_.username == stateVar.now().username)
+        || (currentTask_.task.annotations.length > config.maxNumberOfAnnotations) then {
+        //console.debug(s"Already annotated by ${stateVar.now().username}")
         nextFeature()
       }
       else

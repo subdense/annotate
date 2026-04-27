@@ -13,6 +13,7 @@ trait Config extends js.Object {
   var corsProxyIsomorphic: String = js.native
   var corsProxyDefault: String = js.native
   var annotationSetup: js.Object = js.native
+  var maxNumberOfAnnotations: Int = js.native
 }
 
 object Config {

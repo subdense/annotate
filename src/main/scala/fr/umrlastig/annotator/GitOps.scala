@@ -91,8 +91,8 @@ object GitOps {
               js.Promise.reject(err)
             })
             .`then`(s =>
-              console.debug(s"Annotation setup from static config : ${js.Object.keys(annotationSetup).toSeq}")
-              console.debug(s"Config for dataset $datasetName : ${annotationSetup.asInstanceOf[js.Dynamic].selectDynamic(datasetName).asInstanceOf[js.Array[js.Array[String]]]}")
+              //console.debug(s"Annotation setup from static config : ${js.Object.keys(annotationSetup).toSeq}")
+              //console.debug(s"Config for dataset $datasetName : ${annotationSetup.asInstanceOf[js.Dynamic].selectDynamic(datasetName).asInstanceOf[js.Array[js.Array[String]]]}")
               js.Dynamic.literal(name = datasetName, dates = dataset.dates, wmts = dataset.wmts, sampleFile = sample, sample = s,
                 modalities = annotationSetup.asInstanceOf[js.Dynamic].selectDynamic(datasetName))
             )
@@ -103,7 +103,7 @@ object GitOps {
         message.set(Some("Parsing tasks"))
         samples.asInstanceOf[js.Array[js.Dynamic]].flatMap(s =>
           val modalities = s.modalities.asInstanceOf[js.Array[js.Array[String]]]
-          console.debug(s"Setting up sample with modalities : $modalities ; dims : ${modalities.toSeq.size} x ${modalities(0).toSeq.size}")
+          //console.debug(s"Setting up sample with modalities : $modalities ; dims : ${modalities.toSeq.size} x ${modalities(0).toSeq.size}")
           val tasks = rng.shuffle(s.sample.asInstanceOf[Sample].tasks)
           tasks.map(t =>
             val task = Types.newTask_()
@@ -113,7 +113,7 @@ object GitOps {
             task.sample = s.sampleFile.asInstanceOf[String]
             task.task = t
             task.modalities = modalities
-            console.debug(s"Task: $task")
+            //console.debug(s"Task: $task")
             task
           )
         )

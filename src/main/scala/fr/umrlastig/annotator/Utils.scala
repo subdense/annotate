@@ -17,6 +17,10 @@ object Utils {
     val (r, g, b) = ((color._1 * 255).floor.intValue, (color._2 * 255).floor.intValue, (color._3 * 255).floor.intValue)
     f"#$r%02x$g%02x$b%02x"
   }
+  private def toRGBString(color: (Double, Double, Double)): String = {
+    val (r, g, b) = ((color._1 * 255).floor.intValue, (color._2 * 255).floor.intValue, (color._3 * 255).floor.intValue)
+    f"rgb($r,$g,$b)"
+  }
 
   // input: h in [0,360] and s,v in [0,1] - output: r,g,b in [0,1]
   private def hsl2rgb(h: Double, s: Double, l: Double) =
@@ -30,7 +34,8 @@ object Utils {
 
   def getColor: String = toHexString(hsl2rgb(rnd.nextDouble() * 360, 0.8, 0.5))
 
-
+  def getRGBColor: String = toRGBString(hsl2rgb(rnd.nextDouble() * 360, 0.8, 0.5))
+  
   private def addTileLayer(map: Map_)(wmts: String): Unit =
     val defaultWMTS = Map("REQUEST" -> "GetTile", "SERVICE" -> "WMTS", "VERSION" -> "1.0.0", "STYLE" -> "normal", "TILEMATRIXSET" -> "PM", "FORMAT" -> "image/jpeg", "TILEMATRIX" -> "{z}", "TILEROW" -> "{y}", "TILECOL" -> "{x}")
 
