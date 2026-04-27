@@ -92,6 +92,7 @@ object CleanupAnnotations {
       .setDirectory(TEMP_DIR)
       .setBranch(TARGET_BRANCH)
       .setCredentialsProvider(credentialsProvider())
+      .setDepth(1)
       .call()
     println(s"Cloned to ${TEMP_DIR.getAbsolutePath}")
   }
@@ -133,6 +134,8 @@ object CleanupAnnotations {
           if (finalCollection.size() != collection.size())
             stats = stats.copy(smallFeaturesFound = stats.smallFeaturesFound + collection.size() - finalCollection.size())
           // TODO check if there is still at least one feature in the collection or remove the task
+          if (finalCollection.isEmpty)
+            println("Empty collection!!!")
         }
         val annotations = taskObj.annotations
         val seen = scala.collection.mutable.Set[String]()

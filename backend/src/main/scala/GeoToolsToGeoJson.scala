@@ -98,12 +98,10 @@ object GeoToolsToGeoJson {
 
   /** Convert entire FeatureCollection to GeoJsonFeatureCollection */
   private def collectionToGeoJson(collection: SimpleFeatureCollection): GeoJsonFeatureCollection = {
-    println(f"collectionToGeoJson with ${collection.size()}")
     val features = scala.collection.mutable.ArrayBuffer[GeoJsonFeature]()
     val iterator = collection.features()
     while (iterator.hasNext)
       features += featureToGeoJson(iterator.next())
-    println(f"features ${features.size}")
     GeoJsonFeatureCollection(
       `type` = "FeatureCollection",
       features = features.toList
